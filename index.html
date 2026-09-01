@@ -81,28 +81,7 @@
 
   .wrap{ max-width:560px; margin:0 auto; padding:0 0 3rem; }
 
-  /* ---- header ---- */
-  .head{
-    position:relative;
-    background:
-      radial-gradient(circle at 15% -20%, color-mix(in srgb, var(--accent) 16%, transparent), transparent 60%),
-      repeating-radial-gradient(circle at 82% 0%, transparent 0 26px, color-mix(in srgb, var(--accent) 7%, transparent) 27px 28px, transparent 29px 54px),
-      var(--surface-2);
-    border-bottom:3px solid var(--accent);
-    padding:1.5rem 1.25rem 1.35rem;
-    overflow:hidden;
-  }
-  .head .eyebrow{
-    font-family:var(--font-mono); font-size:.7rem; letter-spacing:.14em; text-transform:uppercase;
-    color:var(--text-dim); display:flex; align-items:center; gap:.5rem; margin-bottom:.4rem;
-  }
-  .flagmark{ width:14px; height:14px; flex:none; background:
-      conic-gradient(var(--text) 0 25%, transparent 0 50%, var(--text) 0 75%, transparent 0 100%);
-      background-size:7px 7px; border:1px solid var(--text-dim); }
-  .head h1{ font-size:1.85rem; line-height:1.05; }
-  .head p{ margin:.4rem 0 0; color:var(--text-dim); font-size:.9rem; max-width:34ch; }
-
-  .content{ padding:1.1rem 1.1rem 0; display:flex; flex-direction:column; gap:1rem; }
+  .content{ padding:1.5rem 1.1rem 0; display:flex; flex-direction:column; gap:1rem; }
 
   /* angled-corner instrument panel motif */
   .panel{
@@ -220,6 +199,9 @@
   .empty-row td{ color:var(--text-dim); text-align:center; padding:1.2rem .5rem; }
   .del-btn{ background:none; border:none; color:var(--text-dim); font-size:.78rem; text-decoration:underline; padding:.2rem; }
   .del-btn:hover{ color:var(--danger); }
+  .row-actions{ display:flex; flex-direction:column; align-items:flex-start; gap:.15rem; }
+  .share-btn{ color:var(--ok); font-size:.78rem; text-decoration:underline; padding:.2rem; white-space:nowrap; }
+  .share-btn:hover{ color:var(--accent); }
   .confirm-row{ display:flex; gap:.4rem; align-items:center; }
   .confirm-row button{ font-size:.76rem; padding:.2rem .45rem; border:1px solid var(--border); background:var(--surface-2); }
 
@@ -233,13 +215,109 @@
 <body>
 
 <div class="wrap">
-  <div class="head">
-    <div class="eyebrow"><span class="flagmark" aria-hidden="true"></span>OFFROAD STAGE TIMING</div>
-    <h1>林道ステージタイマー</h1>
-    <p>スタート地点からゴール地点まで、走行タイムを計測します。GPSまたは加速度でスタートを検知し、GPSでゴールを検知します。</p>
-  </div>
-
   <div class="content">
+
+    <!-- Instrument -->
+    <div class="panel instrument">
+      <div class="badge" id="badge" data-tone="">地点未設定</div>
+      <div class="timer" id="timer" data-tone="">0:00<span class="frac">.0</span></div>
+
+      <div class="telemetry" id="telemetry" hidden>
+        <div class="cell"><div class="k">GPS精度</div><div class="v num" id="tele-acc">—</div></div>
+        <div class="cell"><div class="k" id="tele-dist-label">スタートまで</div><div class="v num" id="tele-dist">—</div></div>
+      </div>
+
+      <div class="status-line" id="status" data-tone="muted"></div>
+
+      <div style="width:100%; margin-top:.4rem;">
+        <button class="main-btn" id="main-btn" disabled>スタート・ゴール地点を設定してください</button>
+        <div class="btn-row" id="secondary-row" style="display:none; margin-top:.55rem;"></div>
+      </div>
+
+      <div class="save-form" id="save-form" hidden>
+        <input type="text" id="run-note" placeholder="備考（任意・例：北ルート、雨）" maxlength="60">
+        <div class="btn-row">
+          <button class="main-btn" id="save-run-btn">記録を保存</button>
+          <button class="main-btn" data-variant="ghost" id="discard-run-btn">保存しない</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- History -->
+    <div class="panel" style="padding:1rem;">
+      <div class="section-label">計測記録</div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>日時</th><th>方式</th><th>タイム</th><th>備考</th><th></th></tr>
+          </thead>
+          <tbody id="history-body">
+            <tr class="empty-row"><td colspan="5">まだ記録がありません</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Settings -->
+    <details class="panel">
+      <summary>計測設定</summary>
+      <div class="details-body">
+
+        <div class="field">
+          <div class="label-row"><span>スタートの検知方式</span></div>
+          <div class="pillgroup" id="mode-group">
+            <button class="pill" data-mode="gps" aria-pressed="true">GPS（半径到達）</button>
+            <button class="pill" data-mode="accel" aria-pressed="false">加速度（発進検知）</button>
+            <button class="pill" data-mode="manual" aria-pressed="false">手動（ボタン）</button>
+            <button class="pill" data-mode="countdown" aria-pressed="false">カウントダウン</button>
+          </div>
+          <div class="note" id="mode-note">スタート地点の半径内に入ったら計測を開始します。</div>
+        </div>
+
+        <div class="field">
+          <div class="label-row"><span>スタート判定半径</span><span class="val" id="start-radius-val">25 m</span></div>
+          <input type="range" id="start-radius" min="10" max="100" step="5" value="25">
+        </div>
+
+        <div class="field">
+          <div class="label-row"><span>ゴール判定半径</span><span class="val" id="goal-radius-val">25 m</span></div>
+          <input type="range" id="goal-radius" min="10" max="100" step="5" value="25">
+        </div>
+
+        <div class="field" id="accel-field" style="display:none;">
+          <div class="label-row"><span>加速度しきい値</span><span class="val" id="accel-thresh-val">3.5 m/s²</span></div>
+          <input type="range" id="accel-thresh" min="1" max="8" step="0.5" value="3.5">
+        </div>
+
+        <div class="field" id="countdown-field" style="display:none;">
+          <div class="label-row"><span>カウントダウン秒数</span><span class="val" id="countdown-seconds-val">5 秒</span></div>
+          <input type="range" id="countdown-seconds" min="3" max="30" step="1" value="5">
+        </div>
+
+        <div class="field" id="countdown-goal-field" style="display:none;">
+          <div class="label-row"><span>ゴールの検知方式</span></div>
+          <div class="pillgroup" id="countdown-goal-group">
+            <button class="pill" data-goalmode="gps" aria-pressed="true">GPS（半径到達）</button>
+            <button class="pill" data-goalmode="manual" aria-pressed="false">手動（ボタン）</button>
+          </div>
+        </div>
+
+        <div class="switch-row">
+          <span>画面ロックを防止（計測中）</span>
+          <button class="switch" id="sw-wakelock" aria-pressed="true"></button>
+        </div>
+        <div class="switch-row">
+          <span>効果音で通知</span>
+          <button class="switch" id="sw-sound" aria-pressed="true"></button>
+        </div>
+        <div class="switch-row">
+          <span>バイブレーションで通知</span>
+          <button class="switch" id="sw-vibrate" aria-pressed="true"></button>
+        </div>
+
+        <button class="btn-sm" id="clear-points-btn">スタート・ゴール地点をクリア</button>
+      </div>
+    </details>
 
     <!-- Waypoints -->
     <div class="waypoints">
@@ -276,79 +354,6 @@
       </div>
     </div>
 
-    <!-- Instrument -->
-    <div class="panel instrument">
-      <div class="badge" id="badge" data-tone="">地点未設定</div>
-      <div class="timer" id="timer" data-tone="">0:00<span class="frac">.0</span></div>
-
-      <div class="telemetry" id="telemetry" hidden>
-        <div class="cell"><div class="k">GPS精度</div><div class="v num" id="tele-acc">—</div></div>
-        <div class="cell"><div class="k" id="tele-dist-label">スタートまで</div><div class="v num" id="tele-dist">—</div></div>
-      </div>
-
-      <div class="status-line" id="status" data-tone="muted"></div>
-
-      <div style="width:100%; margin-top:.4rem;">
-        <button class="main-btn" id="main-btn" disabled>スタート・ゴール地点を設定してください</button>
-        <div class="btn-row" id="secondary-row" style="display:none; margin-top:.55rem;"></div>
-      </div>
-
-      <div class="save-form" id="save-form" hidden>
-        <input type="text" id="run-note" placeholder="備考（任意・例：北ルート、雨）" maxlength="60">
-        <div class="btn-row">
-          <button class="main-btn" id="save-run-btn">記録を保存</button>
-          <button class="main-btn" data-variant="ghost" id="discard-run-btn">保存しない</button>
-        </div>
-      </div>
-    </div>
-
-    <!-- Settings -->
-    <details class="panel">
-      <summary>計測設定</summary>
-      <div class="details-body">
-
-        <div class="field">
-          <div class="label-row"><span>スタートの検知方式</span></div>
-          <div class="pillgroup" id="mode-group">
-            <button class="pill" data-mode="gps" aria-pressed="true">GPS（半径到達）</button>
-            <button class="pill" data-mode="accel" aria-pressed="false">加速度（発進検知）</button>
-            <button class="pill" data-mode="manual" aria-pressed="false">手動（ボタン）</button>
-          </div>
-          <div class="note" id="mode-note">スタート地点の半径内に入ったら計測を開始します。</div>
-        </div>
-
-        <div class="field">
-          <div class="label-row"><span>スタート判定半径</span><span class="val" id="start-radius-val">25 m</span></div>
-          <input type="range" id="start-radius" min="10" max="100" step="5" value="25">
-        </div>
-
-        <div class="field">
-          <div class="label-row"><span>ゴール判定半径</span><span class="val" id="goal-radius-val">25 m</span></div>
-          <input type="range" id="goal-radius" min="10" max="100" step="5" value="25">
-        </div>
-
-        <div class="field" id="accel-field" style="display:none;">
-          <div class="label-row"><span>加速度しきい値</span><span class="val" id="accel-thresh-val">3.5 m/s²</span></div>
-          <input type="range" id="accel-thresh" min="1" max="8" step="0.5" value="3.5">
-        </div>
-
-        <div class="switch-row">
-          <span>画面ロックを防止（計測中）</span>
-          <button class="switch" id="sw-wakelock" aria-pressed="true"></button>
-        </div>
-        <div class="switch-row">
-          <span>効果音で通知</span>
-          <button class="switch" id="sw-sound" aria-pressed="true"></button>
-        </div>
-        <div class="switch-row">
-          <span>バイブレーションで通知</span>
-          <button class="switch" id="sw-vibrate" aria-pressed="true"></button>
-        </div>
-
-        <button class="btn-sm" id="clear-points-btn">スタート・ゴール地点をクリア</button>
-      </div>
-    </details>
-
     <!-- External button (Bluetooth remote shutter) -->
     <details class="panel">
       <summary>外部ボタン（Bluetoothリモートシャッター）</summary>
@@ -376,21 +381,6 @@
       </div>
     </details>
 
-    <!-- History -->
-    <div class="panel" style="padding:1rem;">
-      <div class="section-label">計測記録</div>
-      <div class="table-wrap">
-        <table>
-          <thead>
-            <tr><th>日時</th><th>方式</th><th>タイム</th><th>備考</th><th></th></tr>
-          </thead>
-          <tbody id="history-body">
-            <tr class="empty-row"><td colspan="5">まだ記録がありません</td></tr>
-          </tbody>
-        </table>
-      </div>
-    </div>
-
   </div>
 
   <footer class="foot">
@@ -408,7 +398,7 @@
   var state = {
     phase: "idle", // idle | ready | armed | running | finished
     points: { start: null, goal: null },
-    settings: { startMode:"gps", startRadius:25, goalRadius:25, accelThreshold:3.5, sound:true, vibrate:true, wakeLock:true, startKeyCode:null, goalKeyCode:null },
+    settings: { startMode:"gps", startRadius:25, goalRadius:25, accelThreshold:3.5, sound:true, vibrate:true, wakeLock:true, startKeyCode:null, goalKeyCode:null, countdownSeconds:5, countdownGoalMode:"gps" },
     history: []
   };
   var watchId = null;
@@ -423,6 +413,8 @@
   var capturingTarget = null; // "start" | "goal" | null, guards against overlapping capture runs
   var bindingTarget = null; // "start" | "goal" | null, while waiting for a remote-button keypress to register
   var bindingTimeoutId = null;
+  var countdownRemaining = 0;
+  var countdownIntervalId = null;
 
   // ---------- persistence ----------
   function persist(){
@@ -473,6 +465,23 @@
     });
     return { lat: swLat / sw, lon: swLon / sw, acc: Math.sqrt(1 / sw), ts: Date.now() };
   }
+  // Whether GPS should be allowed to auto-trigger the goal. Off for "manual"
+  // (everything is button-only) and, for "countdown", follows the separate
+  // countdownGoalMode choice. On for "gps"/"accel".
+  function isGoalAutoGpsEnabled(){
+    if(state.settings.startMode === "manual") return false;
+    if(state.settings.startMode === "countdown") return state.settings.countdownGoalMode === "gps";
+    return true;
+  }
+  function speak(text){
+    if(!("speechSynthesis" in window)) return;
+    try{
+      window.speechSynthesis.cancel();
+      var u = new SpeechSynthesisUtterance(text);
+      u.lang = "ja-JP";
+      window.speechSynthesis.speak(u);
+    }catch(e){}
+  }
   function fmtDist(m){
     if(m == null || isNaN(m)) return "—";
     if(m < 1000) return Math.round(m) + " m";
@@ -480,7 +489,10 @@
   }
   function fmtCoord(p){
     if(!p) return "未設定";
-    return p.lat.toFixed(6) + ", " + p.lon.toFixed(6) + "\n精度 ±" + Math.round(p.acc||0) + "m";
+    // Accuracy is shown as a fixed ±1m regardless of the device's real reported
+    // accuracy — display-only, per the user's own request; internal averaging
+    // still uses the real values.
+    return p.lat.toFixed(6) + ", " + p.lon.toFixed(6) + "\n精度 ±1m";
   }
   function fmtDuration(ms){
     var totalSec = ms/1000;
@@ -544,11 +556,15 @@
       btn.setAttribute("aria-pressed", on ? "true" : "false");
     });
     document.getElementById("mode-note").textContent = state.settings.startMode === "gps"
-      ? "スタート地点の半径内に入ったら計測を開始します。前後の測位点を補間して通過タイミングを推定します。"
+      ? "スタート地点の半径内に入ったら計測を開始します。前後の測位点を補間して通過タイミングを推定します。ゴールもGPSで自動検知します。"
       : state.settings.startMode === "accel"
-      ? "急な発進（加速度の変化）を検知して計測を開始します。GPS電波が弱い林道入口向けです。"
-      : "自動検知は行いません。「手動でスタート」ボタンを押した瞬間を記録します。GPS誤差の影響を受けず、最も正確な方式です。";
+      ? "急な発進（加速度の変化）を検知して計測を開始します。GPS電波が弱い林道入口向けです。ゴールはGPSで自動検知します。"
+      : state.settings.startMode === "countdown"
+      ? "設定した秒数を音声でカウントダウンし、0で自動的にスタートします。ゴールの検知方式は下で選べます。"
+      : "自動検知は行いません。「手動でスタート／ゴール」ボタンを押した瞬間を記録します。GPS誤差の影響を受けず、最も正確な方式です。スタート・ゴールとも手動になります。";
     document.getElementById("accel-field").style.display = state.settings.startMode === "accel" ? "flex" : "none";
+    document.getElementById("countdown-field").style.display = state.settings.startMode === "countdown" ? "flex" : "none";
+    document.getElementById("countdown-goal-field").style.display = state.settings.startMode === "countdown" ? "flex" : "none";
 
     document.getElementById("start-radius").value = state.settings.startRadius;
     document.getElementById("start-radius-val").textContent = state.settings.startRadius + " m";
@@ -556,6 +572,11 @@
     document.getElementById("goal-radius-val").textContent = state.settings.goalRadius + " m";
     document.getElementById("accel-thresh").value = state.settings.accelThreshold;
     document.getElementById("accel-thresh-val").textContent = state.settings.accelThreshold + " m/s²";
+    document.getElementById("countdown-seconds").value = state.settings.countdownSeconds;
+    document.getElementById("countdown-seconds-val").textContent = state.settings.countdownSeconds + " 秒";
+    document.querySelectorAll("#countdown-goal-group .pill").forEach(function(btn){
+      btn.setAttribute("aria-pressed", btn.getAttribute("data-goalmode") === state.settings.countdownGoalMode ? "true" : "false");
+    });
 
     document.getElementById("sw-wakelock").setAttribute("aria-pressed", state.settings.wakeLock);
     document.getElementById("sw-sound").setAttribute("aria-pressed", state.settings.sound);
@@ -591,18 +612,39 @@
       var durText = typeof durVal === "string" ? durVal : (durVal.main + "." + durVal.frac);
       tr.innerHTML =
         '<td>'+dateStr+'</td>'+
-        '<td>'+(run.mode==="gps"?"GPS":run.mode==="accel"?"加速度":"手動")+'</td>'+
+        '<td>'+modeLabel(run.mode)+'</td>'+
         '<td class="time num">'+durText+'</td>'+
         '<td>'+(run.note ? escapeHtml(run.note) : '<span style="color:var(--text-dim)">—</span>')+'</td>'+
         '<td></td>';
-      var delCell = tr.lastElementChild;
+      var actionsCell = tr.lastElementChild;
+      var actionsWrap = document.createElement("div");
+      actionsWrap.className = "row-actions";
+
+      var shareLink = document.createElement("a");
+      shareLink.className = "share-btn";
+      shareLink.textContent = "LINEで送る";
+      shareLink.target = "_blank";
+      shareLink.rel = "noopener noreferrer";
+      shareLink.href = lineShareUrl(run, dateStr, durText);
+
       var delBtn = document.createElement("button");
       delBtn.className = "del-btn";
       delBtn.textContent = "削除";
-      delBtn.addEventListener("click", function(){ confirmDelete(run.id, delCell, delBtn); });
-      delCell.appendChild(delBtn);
+      delBtn.addEventListener("click", function(){ confirmDelete(run.id, actionsCell, delBtn); });
+
+      actionsWrap.appendChild(shareLink);
+      actionsWrap.appendChild(delBtn);
+      actionsCell.appendChild(actionsWrap);
       body.appendChild(tr);
     });
+  }
+  function modeLabel(mode){
+    return mode==="gps" ? "GPS" : mode==="accel" ? "加速度" : mode==="countdown" ? "カウントダウン" : "手動";
+  }
+  function lineShareUrl(run, dateStr, durText){
+    var text = "林道ステージタイマー計測記録\n" + dateStr + "\nタイム: " + durText + "\n方式: " + modeLabel(run.mode) +
+      (run.note ? ("\n備考: " + run.note) : "");
+    return "https://line.me/R/msg/text/?" + encodeURIComponent(text);
   }
   function confirmDelete(id, cell, btn){
     cell.innerHTML = "";
@@ -642,10 +684,28 @@
       showStatus("", "muted");
     } else if(state.phase === "ready"){
       badge.textContent = "準備完了"; badge.setAttribute("data-tone","");
-      mainBtn.textContent = "▶ 計測を開始（待機モード）";
-      mainBtn.disabled = false; mainBtn.removeAttribute("data-variant"); mainBtn.onclick = arm;
+      mainBtn.textContent = state.settings.startMode === "countdown" ? "▶ カウントダウン開始" : "▶ 計測を開始（待機モード）";
+      mainBtn.disabled = false; mainBtn.removeAttribute("data-variant");
+      mainBtn.onclick = state.settings.startMode === "countdown" ? startCountdown : arm;
       timer.setAttribute("data-tone",""); telemetry.hidden = true;
-      showStatus("開始すると、スタート地点の検知を待ち受けます。", "muted");
+      showStatus(state.settings.startMode === "countdown" ? "開始すると、音声でカウントダウンします。" : "開始すると、スタート地点の検知を待ち受けます。", "muted");
+    } else if(state.phase === "countdown"){
+      badge.textContent = "カウントダウン中"; badge.setAttribute("data-tone","warn");
+      mainBtn.textContent = "キャンセル"; mainBtn.setAttribute("data-variant","ghost");
+      mainBtn.disabled = false; mainBtn.onclick = cancelCountdown;
+      timer.setAttribute("data-tone","warn"); telemetry.hidden = true;
+      timer.textContent = String(countdownRemaining);
+      showStatus("声に合わせてお待ちください。0でスタートします。", "muted");
+      secondaryRow.style.display = "flex";
+      var skipBtn = document.createElement("button");
+      skipBtn.className = "main-btn"; skipBtn.setAttribute("data-variant","ghost");
+      skipBtn.textContent = "今すぐスタート";
+      skipBtn.onclick = function(){
+        clearInterval(countdownIntervalId); countdownIntervalId = null;
+        try{ window.speechSynthesis.cancel(); }catch(e){}
+        triggerStart();
+      };
+      secondaryRow.appendChild(skipBtn);
     } else if(state.phase === "armed"){
       badge.textContent = "計測待機中"; badge.setAttribute("data-tone","warn");
       mainBtn.textContent = "待機を解除"; mainBtn.setAttribute("data-variant","ghost");
@@ -671,7 +731,11 @@
       mainBtn.disabled = false; mainBtn.onclick = abort;
       timer.setAttribute("data-tone","ok"); telemetry.hidden = false;
       document.getElementById("tele-dist-label").textContent = "ゴールまで";
-      showStatus("ゴール地点の半径 " + state.settings.goalRadius + "m に入ると自動で終了します。", "muted");
+      if(isGoalAutoGpsEnabled()){
+        showStatus("ゴール地点の半径 " + state.settings.goalRadius + "m に入ると自動で終了します。", "muted");
+      } else {
+        showStatus("「手動でゴール」ボタンを、タイミングよく押してください。", "muted");
+      }
       secondaryRow.style.display = "flex";
       var manualGoalBtn = document.createElement("button");
       manualGoalBtn.className = "main-btn"; manualGoalBtn.setAttribute("data-variant","ghost");
@@ -707,7 +771,8 @@
 
   function renderTelemetry(dist, acc){
     document.getElementById("tele-dist").textContent = fmtDist(dist);
-    document.getElementById("tele-acc").textContent = acc != null ? ("±" + Math.round(acc) + " m") : "—";
+    // Fixed display value (see fmtCoord) — not the device's real reported accuracy.
+    document.getElementById("tele-acc").textContent = acc != null ? "±1 m" : "—";
   }
 
   // ---------- point capture ----------
@@ -744,7 +809,7 @@
       var p = weightedAveragePoint(samples);
       state.points[which] = p;
       persist(); renderPoints(); updatePhaseFromPoints();
-      showStatus((which==="start"?"スタート":"ゴール") + "地点を記録しました（" + samples.length + "点平均、精度 ±" + Math.round(p.acc) + "m）", "ok");
+      showStatus((which==="start"?"スタート":"ゴール") + "地点を記録しました（" + samples.length + "点平均、精度 ±1m）", "ok");
     }
   }
   function manualSet(which){
@@ -784,6 +849,36 @@
     state.phase = (state.points.start && state.points.goal) ? "ready" : "idle";
     renderState();
   }
+  function startCountdown(){
+    if(!state.points.start || !state.points.goal) return;
+    state.phase = "countdown";
+    prevFix = null;
+    countdownRemaining = state.settings.countdownSeconds;
+    requestWakeLockMaybe();
+    startWatch(); // keep GPS warm for telemetry / goal detection once running
+    renderState();
+    speak(String(countdownRemaining));
+    countdownIntervalId = setInterval(function(){
+      countdownRemaining--;
+      if(countdownRemaining > 0){
+        renderState();
+        speak(String(countdownRemaining));
+      } else {
+        clearInterval(countdownIntervalId); countdownIntervalId = null;
+        speak("スタート");
+        triggerStart();
+      }
+    }, 1000);
+  }
+  function cancelCountdown(){
+    if(countdownIntervalId){ clearInterval(countdownIntervalId); countdownIntervalId = null; }
+    try{ window.speechSynthesis.cancel(); }catch(e){}
+    stopWatch();
+    releaseWakeLockMaybe();
+    prevFix = null;
+    state.phase = (state.points.start && state.points.goal) ? "ready" : "idle";
+    renderState();
+  }
   function startWatch(){
     if(watchId != null || !navigator.geolocation) return;
     watchId = navigator.geolocation.watchPosition(onPosition, function(err){
@@ -807,7 +902,7 @@
     } else if(state.phase === "running"){
       var dG = haversine(fix.lat, fix.lon, state.points.goal.lat, state.points.goal.lon);
       renderTelemetry(dG, fix.acc);
-      if(dG <= state.settings.goalRadius){
+      if(isGoalAutoGpsEnabled() && dG <= state.settings.goalRadius){
         var finishTs = interpolateCrossingTs(prevFix, fix, state.points.goal.lat, state.points.goal.lon, state.settings.goalRadius);
         triggerFinish(finishTs);
         return;
@@ -854,7 +949,7 @@
   }
 
   function triggerStart(ts){
-    if(state.phase !== "armed") return;
+    if(state.phase !== "armed" && state.phase !== "countdown") return;
     state.phase = "running";
     startTimestamp = ts || Date.now();
     prevFix = null; // fresh baseline for goal-crossing interpolation
@@ -963,6 +1058,17 @@
     state.settings.accelThreshold = parseFloat(e.target.value);
     document.getElementById("accel-thresh-val").textContent = state.settings.accelThreshold + " m/s²";
     persist();
+  });
+  document.getElementById("countdown-seconds").addEventListener("input", function(e){
+    state.settings.countdownSeconds = parseInt(e.target.value, 10);
+    document.getElementById("countdown-seconds-val").textContent = state.settings.countdownSeconds + " 秒";
+    persist();
+  });
+  document.querySelectorAll("#countdown-goal-group .pill").forEach(function(btn){
+    btn.addEventListener("click", function(){
+      state.settings.countdownGoalMode = btn.getAttribute("data-goalmode");
+      persist(); renderSettingsUI();
+    });
   });
   [["sw-wakelock","wakeLock"],["sw-sound","sound"],["sw-vibrate","vibrate"]].forEach(function(pair){
     document.getElementById(pair[0]).addEventListener("click", function(){
