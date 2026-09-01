@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>林道ステージタイマー</title>
+
 <style>
   @import url('https://fonts.googleapis.com/css2?family=Rajdhani:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600;700&display=swap');
 
@@ -59,7 +60,6 @@
   }
 
   *{ box-sizing:border-box; }
-  html, body{ height:100%; }
   body{
     margin:0;
     background:var(--bg);
@@ -279,7 +279,7 @@
     <!-- Instrument -->
     <div class="panel instrument">
       <div class="badge" id="badge" data-tone="">地点未設定</div>
-      <div class="timer" id="timer" data-tone="">0:00<span class="frac">.00</span></div>
+      <div class="timer" id="timer" data-tone="">0:00<span class="frac">.0</span></div>
 
       <div class="telemetry" id="telemetry" hidden>
         <div class="cell"><div class="k">GPS精度</div><div class="v num" id="tele-acc">—</div></div>
@@ -312,6 +312,7 @@
           <div class="pillgroup" id="mode-group">
             <button class="pill" data-mode="gps" aria-pressed="true">GPS（半径到達）</button>
             <button class="pill" data-mode="accel" aria-pressed="false">加速度（発進検知）</button>
+            <button class="pill" data-mode="manual" aria-pressed="false">手動（ボタン）</button>
           </div>
           <div class="note" id="mode-note">スタート地点の半径内に入ったら計測を開始します。</div>
         </div>
@@ -348,6 +349,33 @@
       </div>
     </details>
 
+    <!-- External button (Bluetooth remote shutter) -->
+    <details class="panel">
+      <summary>外部ボタン（Bluetoothリモートシャッター）</summary>
+      <div class="details-body">
+        <div class="note">
+          スマホの設定でリモコンとBluetoothペアリングしてから、「登録」を押し、5秒以内にリモコンのボタンを押してください。押されたボタンをそのままスタート／ゴール用として記憶します。
+        </div>
+        <div class="field">
+          <div class="label-row"><span>スタート用ボタン</span><span class="val" id="start-key-label">未設定</span></div>
+          <div class="btn-row">
+            <button class="btn-sm" id="bind-start-key" style="flex:1;">登録</button>
+            <button class="btn-sm" id="clear-start-key" style="flex:1;">解除</button>
+          </div>
+        </div>
+        <div class="field">
+          <div class="label-row"><span>ゴール用ボタン</span><span class="val" id="goal-key-label">未設定</span></div>
+          <div class="btn-row">
+            <button class="btn-sm" id="bind-goal-key" style="flex:1;">登録</button>
+            <button class="btn-sm" id="clear-goal-key" style="flex:1;">解除</button>
+          </div>
+        </div>
+        <div class="note">
+          登録したボタンは、スタート待機中／計測中に押すと画面の「手動でスタート／ゴール」ボタンと同じ働きをします。リモコンによっては「音量キー」として動作し、ブラウザ側では反応しないことがあります。登録時にボタンを押しても表示が変わらない場合は、この方式は使えないため画面上の手動ボタンをお使いください。
+        </div>
+      </div>
+    </details>
+
     <!-- History -->
     <div class="panel" style="padding:1rem;">
       <div class="section-label">計測記録</div>
@@ -367,7 +395,7 @@
 
   <footer class="foot">
     <p class="note">
-      GPSはスマートフォンのブラウザ機能を使用します。樹木が茂った林道では電波が弱くなり、誤差が数十mになることがあるため、判定半径は広めの設定をおすすめします。計測中は画面をロックせずアプリのタブを開いたままにしてください。走行中の操作は行わず、安全を最優先してください。
+      GPSはスマートフォンのブラウザ機能を使用します。樹木が茂った林道では電波が弱くなり、誤差が数十mになることがあるため、判定半径は広めの設定をおすすめします。自動検知は前後の測位点を補間して通過タイミングを推定しますが、それでも電波状況によって誤差が残ります。最も正確に計測したい場合は「手動（ボタン）」モードと「手動でスタート／ゴール」ボタンをお使いください。計測中は画面をロックせずアプリのタブを開いたままにしてください。走行中の操作は行わず、安全を最優先してください。
     </p>
   </footer>
 </div>
@@ -380,7 +408,7 @@
   var state = {
     phase: "idle", // idle | ready | armed | running | finished
     points: { start: null, goal: null },
-    settings: { startMode:"gps", startRadius:25, goalRadius:25, accelThreshold:3.5, sound:true, vibrate:true, wakeLock:true },
+    settings: { startMode:"gps", startRadius:25, goalRadius:25, accelThreshold:3.5, sound:true, vibrate:true, wakeLock:true, startKeyCode:null, goalKeyCode:null },
     history: []
   };
   var watchId = null;
@@ -391,6 +419,10 @@
   var wakeLockObj = null;
   var lastElapsed = 0;
   var audioCtx = null;
+  var prevFix = null; // last watched position, used to interpolate the true crossing instant
+  var capturingTarget = null; // "start" | "goal" | null, guards against overlapping capture runs
+  var bindingTarget = null; // "start" | "goal" | null, while waiting for a remote-button keypress to register
+  var bindingTimeoutId = null;
 
   // ---------- persistence ----------
   function persist(){
@@ -418,6 +450,29 @@
     var c = 2*Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
     return R*c;
   }
+  // Estimates the instant the vehicle actually crossed the radius boundary,
+  // by linearly interpolating between the previous and current GPS fix
+  // (both position and time) rather than using the current fix's timestamp
+  // outright. This removes most of the error caused by the ~1-fix-per-second
+  // GPS update rate.
+  function interpolateCrossingTs(prev, curr, targetLat, targetLon, radius){
+    if(!prev) return curr.ts;
+    var dPrev = haversine(prev.lat, prev.lon, targetLat, targetLon);
+    var dCurr = haversine(curr.lat, curr.lon, targetLat, targetLon);
+    if(dPrev === dCurr) return curr.ts;
+    var frac = (dPrev - radius) / (dPrev - dCurr);
+    if(frac < 0) frac = 0;
+    if(frac > 1) frac = 1;
+    return prev.ts + frac * (curr.ts - prev.ts);
+  }
+  function weightedAveragePoint(samples){
+    var sw = 0, swLat = 0, swLon = 0;
+    samples.forEach(function(s){
+      var w = 1 / Math.pow(Math.max(s.acc, 1), 2); // inverse-variance weighting
+      sw += w; swLat += s.lat * w; swLon += s.lon * w;
+    });
+    return { lat: swLat / sw, lon: swLon / sw, acc: Math.sqrt(1 / sw), ts: Date.now() };
+  }
   function fmtDist(m){
     if(m == null || isNaN(m)) return "—";
     if(m < 1000) return Math.round(m) + " m";
@@ -435,7 +490,7 @@
     if(h > 0){
       return h + ":" + String(m).padStart(2,"0") + ":" + s.toFixed(1).padStart(4,"0");
     }
-    var secParts = s.toFixed(2).split(".");
+    var secParts = s.toFixed(1).split(".");
     return { main: m + ":" + secParts[0].padStart(2,"0"), frac: secParts[1] };
   }
   function geoErrorMessage(err){
@@ -489,8 +544,10 @@
       btn.setAttribute("aria-pressed", on ? "true" : "false");
     });
     document.getElementById("mode-note").textContent = state.settings.startMode === "gps"
-      ? "スタート地点の半径内に入ったら計測を開始します。"
-      : "急な発進（加速度の変化）を検知して計測を開始します。GPS電波が弱い林道入口向けです。";
+      ? "スタート地点の半径内に入ったら計測を開始します。前後の測位点を補間して通過タイミングを推定します。"
+      : state.settings.startMode === "accel"
+      ? "急な発進（加速度の変化）を検知して計測を開始します。GPS電波が弱い林道入口向けです。"
+      : "自動検知は行いません。「手動でスタート」ボタンを押した瞬間を記録します。GPS誤差の影響を受けず、最も正確な方式です。";
     document.getElementById("accel-field").style.display = state.settings.startMode === "accel" ? "flex" : "none";
 
     document.getElementById("start-radius").value = state.settings.startRadius;
@@ -503,6 +560,20 @@
     document.getElementById("sw-wakelock").setAttribute("aria-pressed", state.settings.wakeLock);
     document.getElementById("sw-sound").setAttribute("aria-pressed", state.settings.sound);
     document.getElementById("sw-vibrate").setAttribute("aria-pressed", state.settings.vibrate);
+  }
+
+  function keyLabel(code){
+    if(!code) return "未設定";
+    var map = {
+      "AudioVolumeUp":"音量アップ", "AudioVolumeDown":"音量ダウン",
+      "Enter":"Enter", "NumpadEnter":"Enter", "Space":"スペース",
+      "ArrowUp":"↑", "ArrowDown":"↓", "ArrowLeft":"←", "ArrowRight":"→", "Escape":"Esc"
+    };
+    return map[code] || code;
+  }
+  function renderKeyBindUI(){
+    document.getElementById("start-key-label").textContent = keyLabel(state.settings.startKeyCode);
+    document.getElementById("goal-key-label").textContent = keyLabel(state.settings.goalKeyCode);
   }
 
   function renderHistory(){
@@ -520,7 +591,7 @@
       var durText = typeof durVal === "string" ? durVal : (durVal.main + "." + durVal.frac);
       tr.innerHTML =
         '<td>'+dateStr+'</td>'+
-        '<td>'+(run.mode==="gps"?"GPS":"加速度")+'</td>'+
+        '<td>'+(run.mode==="gps"?"GPS":run.mode==="accel"?"加速度":"手動")+'</td>'+
         '<td class="time num">'+durText+'</td>'+
         '<td>'+(run.note ? escapeHtml(run.note) : '<span style="color:var(--text-dim)">—</span>')+'</td>'+
         '<td></td>';
@@ -583,8 +654,10 @@
       document.getElementById("tele-dist-label").textContent = "スタートまで";
       if(state.settings.startMode === "gps"){
         showStatus("スタート地点の半径 " + state.settings.startRadius + "m に入ると自動で開始します。", "muted");
-      } else {
+      } else if(state.settings.startMode === "accel"){
         showStatus("発進を検知すると自動で開始します。急ブレーキ・段差に注意してください。", "muted");
+      } else {
+        showStatus("「手動でスタート」ボタンを、タイミングよく押してください。", "muted");
       }
       secondaryRow.style.display = "flex";
       var manualStartBtn = document.createElement("button");
@@ -638,17 +711,41 @@
   }
 
   // ---------- point capture ----------
-  function captureLocation(which){
+  var CAPTURE_TARGET_SAMPLES = 5;
+  var CAPTURE_MAX_DURATION_MS = 6000;
+  function captureLocation(which, btn){
     if(!navigator.geolocation){ showStatus("この環境では位置情報を利用できません", "danger"); return; }
-    showStatus("位置情報を取得中…", "muted");
-    navigator.geolocation.getCurrentPosition(function(pos){
-      var p = { lat:pos.coords.latitude, lon:pos.coords.longitude, acc:pos.coords.accuracy, ts:Date.now() };
+    if(capturingTarget){ return; } // already averaging a point, ignore re-taps
+    capturingTarget = which;
+    if(btn) btn.disabled = true;
+    var samples = [];
+    showStatus("位置情報を取得中…数秒間そのままお待ちください（0/" + CAPTURE_TARGET_SAMPLES + "）", "muted");
+
+    var tempWatchId = navigator.geolocation.watchPosition(function(pos){
+      samples.push({ lat:pos.coords.latitude, lon:pos.coords.longitude, acc:pos.coords.accuracy });
+      showStatus("位置情報を取得中…数秒間そのままお待ちください（" + samples.length + "/" + CAPTURE_TARGET_SAMPLES + "）", "muted");
+      if(samples.length >= CAPTURE_TARGET_SAMPLES) finish();
+    }, function(err){
+      if(samples.length === 0) finish(err);
+    }, { enableHighAccuracy:true, maximumAge:0, timeout:CAPTURE_MAX_DURATION_MS });
+
+    var timeoutId = setTimeout(function(){ finish(); }, CAPTURE_MAX_DURATION_MS);
+
+    function finish(err){
+      if(capturingTarget !== which) return; // already finished via the other path
+      capturingTarget = null;
+      clearTimeout(timeoutId);
+      navigator.geolocation.clearWatch(tempWatchId);
+      if(btn) btn.disabled = false;
+      if(samples.length === 0){
+        showStatus(geoErrorMessage(err), "danger");
+        return;
+      }
+      var p = weightedAveragePoint(samples);
       state.points[which] = p;
       persist(); renderPoints(); updatePhaseFromPoints();
-      showStatus((which==="start"?"スタート":"ゴール") + "地点を記録しました", "ok");
-    }, function(err){
-      showStatus(geoErrorMessage(err), "danger");
-    }, { enableHighAccuracy:true, timeout:15000, maximumAge:0 });
+      showStatus((which==="start"?"スタート":"ゴール") + "地点を記録しました（" + samples.length + "点平均、精度 ±" + Math.round(p.acc) + "m）", "ok");
+    }
   }
   function manualSet(which){
     var lat = parseFloat(document.getElementById(which+"-lat").value);
@@ -675,6 +772,7 @@
   function arm(){
     if(!state.points.start || !state.points.goal) return;
     state.phase = "armed";
+    prevFix = null;
     requestWakeLockMaybe();
     startWatch();
     if(state.settings.startMode === "accel") startMotion();
@@ -682,6 +780,7 @@
   }
   function abort(){
     stopWatch(); stopMotion(); clearTickInterval(); releaseWakeLockMaybe();
+    prevFix = null;
     state.phase = (state.points.start && state.points.goal) ? "ready" : "idle";
     renderState();
   }
@@ -689,25 +788,31 @@
     if(watchId != null || !navigator.geolocation) return;
     watchId = navigator.geolocation.watchPosition(onPosition, function(err){
       showStatus(geoErrorMessage(err), "warn");
-    }, { enableHighAccuracy:true, maximumAge:1000, timeout:20000 });
+    }, { enableHighAccuracy:true, maximumAge:0, timeout:20000 });
   }
   function stopWatch(){
     if(watchId != null){ navigator.geolocation.clearWatch(watchId); watchId = null; }
   }
   function onPosition(pos){
-    var fix = { lat:pos.coords.latitude, lon:pos.coords.longitude, acc:pos.coords.accuracy };
+    var fix = { lat:pos.coords.latitude, lon:pos.coords.longitude, acc:pos.coords.accuracy, ts:Date.now() };
     if(state.phase === "armed"){
       var dS = haversine(fix.lat, fix.lon, state.points.start.lat, state.points.start.lon);
       renderTelemetry(dS, fix.acc);
       if(state.settings.startMode === "gps" && dS <= state.settings.startRadius){
-        triggerStart();
+        var startTs = interpolateCrossingTs(prevFix, fix, state.points.start.lat, state.points.start.lon, state.settings.startRadius);
+        triggerStart(startTs);
+        return;
       }
+      prevFix = fix;
     } else if(state.phase === "running"){
       var dG = haversine(fix.lat, fix.lon, state.points.goal.lat, state.points.goal.lon);
       renderTelemetry(dG, fix.acc);
       if(dG <= state.settings.goalRadius){
-        triggerFinish();
+        var finishTs = interpolateCrossingTs(prevFix, fix, state.points.goal.lat, state.points.goal.lon, state.settings.goalRadius);
+        triggerFinish(finishTs);
+        return;
       }
+      prevFix = fix;
     }
   }
 
@@ -748,19 +853,21 @@
     }
   }
 
-  function triggerStart(){
+  function triggerStart(ts){
     if(state.phase !== "armed") return;
     state.phase = "running";
-    startTimestamp = Date.now();
+    startTimestamp = ts || Date.now();
+    prevFix = null; // fresh baseline for goal-crossing interpolation
     stopMotion();
     if(!tickInterval) tickInterval = setInterval(renderTimerLive, 100);
     playTone(880, 150);
     doVibrate(120);
     renderState();
   }
-  function triggerFinish(){
+  function triggerFinish(ts){
     if(state.phase !== "running") return;
-    lastElapsed = Date.now() - startTimestamp;
+    var finishTs = ts || Date.now();
+    lastElapsed = finishTs - startTimestamp;
     state.phase = "finished";
     clearTickInterval();
     stopWatch();
@@ -787,9 +894,46 @@
     renderState();
   }
 
+  // ---------- external button (Bluetooth remote shutter) ----------
+  function startBinding(which){
+    if(bindingTarget) return; // already waiting on the other button
+    bindingTarget = which;
+    document.getElementById(which + "-key-label").textContent = "ボタンを押してください…";
+    showStatus("5秒以内にリモコンのボタンを押してください", "muted");
+    bindingTimeoutId = setTimeout(function(){
+      if(bindingTarget === which){
+        bindingTarget = null;
+        renderKeyBindUI();
+        showStatus("反応がありませんでした。ボタンが音量キーとして動作している可能性があります。", "warn");
+      }
+    }, 5000);
+  }
+  // Single document-level listener, capture phase so it fires no matter what has focus.
+  document.addEventListener("keydown", function(e){
+    if(bindingTarget){
+      e.preventDefault();
+      clearTimeout(bindingTimeoutId);
+      var bound = bindingTarget;
+      state.settings[bound + "KeyCode"] = e.code || e.key || "Unknown";
+      bindingTarget = null;
+      persist(); renderKeyBindUI();
+      showStatus((bound==="start"?"スタート":"ゴール") + "用ボタンとして登録しました：" + keyLabel(state.settings[bound+"KeyCode"]), "ok");
+      return;
+    }
+    var activeTag = document.activeElement && document.activeElement.tagName;
+    if(activeTag === "INPUT" || activeTag === "TEXTAREA") return; // don't hijack typing
+    if(state.phase === "armed" && state.settings.startKeyCode && e.code === state.settings.startKeyCode){
+      e.preventDefault();
+      triggerStart();
+    } else if(state.phase === "running" && state.settings.goalKeyCode && e.code === state.settings.goalKeyCode){
+      e.preventDefault();
+      triggerFinish();
+    }
+  }, true);
+
   // ---------- events ----------
   document.querySelectorAll('[data-action="capture"]').forEach(function(btn){
-    btn.addEventListener("click", function(){ captureLocation(btn.getAttribute("data-target")); });
+    btn.addEventListener("click", function(){ captureLocation(btn.getAttribute("data-target"), btn); });
   });
   document.querySelectorAll('[data-action="toggle-manual"]').forEach(function(btn){
     btn.addEventListener("click", function(){
@@ -833,11 +977,20 @@
   });
   document.getElementById("save-run-btn").addEventListener("click", saveRun);
   document.getElementById("discard-run-btn").addEventListener("click", discardRun);
+  document.getElementById("bind-start-key").addEventListener("click", function(){ startBinding("start"); });
+  document.getElementById("bind-goal-key").addEventListener("click", function(){ startBinding("goal"); });
+  document.getElementById("clear-start-key").addEventListener("click", function(){
+    state.settings.startKeyCode = null; persist(); renderKeyBindUI();
+  });
+  document.getElementById("clear-goal-key").addEventListener("click", function(){
+    state.settings.goalKeyCode = null; persist(); renderKeyBindUI();
+  });
 
   // ---------- init ----------
   loadPersisted();
   renderPoints();
   renderSettingsUI();
+  renderKeyBindUI();
   renderHistory();
   updatePhaseFromPoints();
   renderState();
