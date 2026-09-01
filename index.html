@@ -114,11 +114,14 @@
   @media (prefers-reduced-motion: reduce){ .badge{ animation:none !important; } }
   @keyframes pulse{ 0%,100%{ opacity:1; } 50%{ opacity:.55; } }
 
-  .timer{ font-family:var(--font-mono); font-weight:700; font-size:clamp(3rem, 15vw, 5.2rem);
+  .timer{ font-family:var(--font-mono); font-weight:700; font-size:clamp(3.75rem, 20vw, 7rem);
     line-height:1; letter-spacing:.01em; font-variant-numeric:tabular-nums; }
   .timer .frac{ font-size:.5em; color:var(--text-dim); }
   .timer[data-tone="ok"]{ color:var(--ok); }
   .timer[data-tone="accent"]{ color:var(--accent); }
+  .timer.editable{ cursor:ns-resize; touch-action:none; user-select:none; border-radius:.4em; outline:2px dashed var(--border); outline-offset:.15em; }
+  .timer.editable.dragging{ outline-color:var(--accent); opacity:.85; }
+  .edit-hint{ font-size:.78rem; color:var(--text-dim); margin-top:-.3rem; }
 
   .telemetry{ display:grid; grid-template-columns:1fr 1fr; gap:.6rem; width:100%; margin-top:.3rem; }
   .telemetry .cell{ background:var(--mono-surface); border:1px solid var(--border); padding:.5rem .6rem; text-align:left; }
@@ -126,12 +129,11 @@
   .telemetry .cell .v{ font-family:var(--font-mono); font-size:1rem; margin-top:.15rem; }
 
   .main-btn{
-    width:100%; border:none; font-family:var(--font-display); font-weight:700; font-size:1.15rem;
-    letter-spacing:.03em; padding:.95rem 1rem; min-height:52px;
+    width:100%; border:none; font-family:var(--font-display); font-weight:700; font-size:1.4rem;
+    letter-spacing:.03em; padding:1.3rem 1rem; min-height:68px;
     clip-path: polygon(10px 0, 100% 0, 100% calc(100% - 10px), calc(100% - 10px) 100%, 0 100%, 0 10px);
     background:var(--accent); color:var(--accent-contrast);
   }
-  .main-btn[data-variant="danger"]{ background:var(--danger); color:#fff; }
   .main-btn[data-variant="ghost"]{ background:transparent; color:var(--text); border:1px solid var(--border); }
   .btn-row{ display:flex; gap:.6rem; width:100%; }
   .btn-row .main-btn{ flex:1; }
@@ -192,7 +194,7 @@
   /* ---- history ---- */
   .table-wrap{ overflow-x:auto; }
   table{ width:100%; border-collapse:collapse; font-size:.86rem; }
-  th{ text-align:left; font-family:var(--font-display); font-weight:600; font-size:.72rem; letter-spacing:.08em; text-transform:uppercase; color:var(--text-dim); padding:.4rem .5rem; border-bottom:1px solid var(--border); white-space:nowrap; }
+  th{ text-align:left; font-family:var(--font-display); font-weight:600; font-size:.72rem; letter-spacing:.08em; text-transform:uppercase; color:var(--text-dim); padding:.4rem .5rem; border-bottom:1px solid var(--border); white-space:nowrap; position:sticky; top:0; background:var(--surface); z-index:1; }
   td{ padding:.55rem .5rem; border-bottom:1px solid var(--border); vertical-align:top; }
   td.time{ font-family:var(--font-mono); font-weight:600; white-space:nowrap; }
   tbody tr:nth-child(odd){ background:var(--mono-surface); }
@@ -246,7 +248,10 @@
     <!-- History -->
     <div class="panel" style="padding:1rem;">
       <div class="section-label">計測記録</div>
-      <div class="table-wrap">
+      <div style="display:flex; justify-content:flex-end; margin:-.35rem 0 .5rem;">
+        <a id="share-recent-line" class="share-btn" href="#" target="_blank" rel="noopener noreferrer" hidden>直近2日分をLINEで送る</a>
+      </div>
+      <div class="table-wrap" id="history-wrap">
         <table>
           <thead>
             <tr><th>日時</th><th>方式</th><th>タイム</th><th>備考</th><th></th></tr>
@@ -276,12 +281,12 @@
 
         <div class="field">
           <div class="label-row"><span>スタート判定半径</span><span class="val" id="start-radius-val">25 m</span></div>
-          <input type="range" id="start-radius" min="10" max="100" step="5" value="25">
+          <input type="range" id="start-radius" min="1" max="100" step="1" value="25">
         </div>
 
         <div class="field">
           <div class="label-row"><span>ゴール判定半径</span><span class="val" id="goal-radius-val">25 m</span></div>
-          <input type="range" id="goal-radius" min="10" max="100" step="5" value="25">
+          <input type="range" id="goal-radius" min="1" max="100" step="1" value="25">
         </div>
 
         <div class="field" id="accel-field" style="display:none;">
@@ -300,6 +305,7 @@
             <button class="pill" data-goalmode="gps" aria-pressed="true">GPS（半径到達）</button>
             <button class="pill" data-goalmode="manual" aria-pressed="false">手動（ボタン）</button>
           </div>
+          <div class="note">ゴール地点を登録していない場合は、この設定に関わらず手動での終了になります。</div>
         </div>
 
         <div class="switch-row">
@@ -327,6 +333,7 @@
         <div class="wp-actions">
           <button class="btn-sm" data-action="capture" data-target="start">📍現在地を記録</button>
           <button class="btn-sm" data-action="toggle-manual" data-target="start">座標を手入力</button>
+          <button class="btn-sm" data-action="delete-point" data-target="start">地点を削除</button>
         </div>
         <div class="manual-entry" id="start-manual">
           <div class="row">
@@ -343,6 +350,7 @@
         <div class="wp-actions">
           <button class="btn-sm" data-action="capture" data-target="goal">📍現在地を記録</button>
           <button class="btn-sm" data-action="toggle-manual" data-target="goal">座標を手入力</button>
+          <button class="btn-sm" data-action="delete-point" data-target="goal">地点を削除</button>
         </div>
         <div class="manual-entry" id="goal-manual">
           <div class="row">
@@ -469,9 +477,19 @@
   // (everything is button-only) and, for "countdown", follows the separate
   // countdownGoalMode choice. On for "gps"/"accel".
   function isGoalAutoGpsEnabled(){
+    if(!state.points.goal) return false; // nothing registered to detect against — always falls back to manual
     if(state.settings.startMode === "manual") return false;
     if(state.settings.startMode === "countdown") return state.settings.countdownGoalMode === "gps";
     return true;
+  }
+  // "manual" and "countdown" never require the start/goal points to be
+  // registered — everything can be button- or time-driven instead. "gps" and
+  // "accel" still need both points since GPS is how they detect the goal
+  // (and, for "gps", the start too).
+  function pointsRequirementMet(){
+    var mode = state.settings.startMode;
+    if(mode === "manual" || mode === "countdown") return true;
+    return !!state.points.start && !!state.points.goal;
   }
   function speak(text){
     if(!("speechSynthesis" in window)) return;
@@ -597,13 +615,13 @@
     document.getElementById("goal-key-label").textContent = keyLabel(state.settings.goalKeyCode);
   }
 
+  var HISTORY_VISIBLE_ROWS = 6;
   function renderHistory(){
     var body = document.getElementById("history-body");
     body.innerHTML = "";
     if(state.history.length === 0){
       body.innerHTML = '<tr class="empty-row"><td colspan="5">まだ記録がありません</td></tr>';
-      return;
-    }
+    } else {
     state.history.forEach(function(run){
       var tr = document.createElement("tr");
       var d = new Date(run.date);
@@ -637,6 +655,43 @@
       actionsCell.appendChild(actionsWrap);
       body.appendChild(tr);
     });
+    }
+    fitHistoryHeight();
+    renderShareRecentLink();
+  }
+  function fitHistoryHeight(){
+    var wrap = document.getElementById("history-wrap");
+    var thead = wrap.querySelector("thead");
+    var firstRow = wrap.querySelector("tbody tr");
+    if(!firstRow || state.history.length === 0){
+      wrap.style.maxHeight = "";
+      wrap.style.overflowY = "";
+      return;
+    }
+    var headH = thead ? thead.offsetHeight : 0;
+    var rowH = firstRow.offsetHeight;
+    wrap.style.maxHeight = (headH + rowH * HISTORY_VISIBLE_ROWS + 2) + "px";
+    wrap.style.overflowY = "auto";
+  }
+  function renderShareRecentLink(){
+    var link = document.getElementById("share-recent-line");
+    var cutoff = Date.now() - 2*24*60*60*1000;
+    var recent = state.history.filter(function(r){ return new Date(r.date).getTime() >= cutoff; });
+    if(recent.length === 0){ link.hidden = true; return; }
+    link.hidden = false;
+    link.href = aggregateLineShareUrl(recent);
+    link.textContent = "直近2日分をLINEで送る（" + recent.length + "件）";
+  }
+  function aggregateLineShareUrl(recent){
+    var lines = recent.map(function(r){
+      var d = new Date(r.date);
+      var dateStr = (d.getMonth()+1) + "/" + d.getDate() + " " + String(d.getHours()).padStart(2,"0") + ":" + String(d.getMinutes()).padStart(2,"0");
+      var durVal = fmtDuration(r.elapsedMs);
+      var durText = typeof durVal === "string" ? durVal : (durVal.main + "." + durVal.frac);
+      return dateStr + "  " + durText + "  " + modeLabel(r.mode) + (r.note ? "  " + r.note : "");
+    });
+    var text = "林道ステージタイマー 計測記録（直近2日間・" + recent.length + "件）\n\n" + lines.join("\n");
+    return "https://line.me/R/msg/text/?" + encodeURIComponent(text);
   }
   function modeLabel(mode){
     return mode==="gps" ? "GPS" : mode==="accel" ? "加速度" : mode==="countdown" ? "カウントダウン" : "手動";
@@ -674,7 +729,9 @@
     var saveForm = document.getElementById("save-form");
     secondaryRow.innerHTML = "";
     secondaryRow.style.display = "none";
+    secondaryRow.style.justifyContent = "center";
     saveForm.hidden = true;
+    timer.classList.remove("editable");
 
     if(state.phase === "idle"){
       badge.textContent = "地点未設定"; badge.setAttribute("data-tone","");
@@ -710,7 +767,7 @@
       badge.textContent = "計測待機中"; badge.setAttribute("data-tone","warn");
       mainBtn.textContent = "待機を解除"; mainBtn.setAttribute("data-variant","ghost");
       mainBtn.disabled = false; mainBtn.onclick = abort;
-      telemetry.hidden = false;
+      telemetry.hidden = !state.points.start;
       document.getElementById("tele-dist-label").textContent = "スタートまで";
       if(state.settings.startMode === "gps"){
         showStatus("スタート地点の半径 " + state.settings.startRadius + "m に入ると自動で開始します。", "muted");
@@ -727,28 +784,29 @@
       secondaryRow.appendChild(manualStartBtn);
     } else if(state.phase === "running"){
       badge.textContent = "計測中"; badge.setAttribute("data-tone","ok");
-      mainBtn.textContent = "リタイア（中断）"; mainBtn.setAttribute("data-variant","danger");
-      mainBtn.disabled = false; mainBtn.onclick = abort;
-      timer.setAttribute("data-tone","ok"); telemetry.hidden = false;
+      mainBtn.textContent = "手動でゴール"; mainBtn.removeAttribute("data-variant");
+      mainBtn.disabled = false; mainBtn.onclick = function(){ triggerFinish(); };
+      timer.setAttribute("data-tone","ok"); telemetry.hidden = !state.points.goal;
       document.getElementById("tele-dist-label").textContent = "ゴールまで";
       if(isGoalAutoGpsEnabled()){
-        showStatus("ゴール地点の半径 " + state.settings.goalRadius + "m に入ると自動で終了します。", "muted");
+        showStatus("ゴール地点の半径 " + state.settings.goalRadius + "m に入ると自動で終了するか、ボタンで終了できます。", "muted");
       } else {
-        showStatus("「手動でゴール」ボタンを、タイミングよく押してください。", "muted");
+        showStatus("ボタンをタイミングよく押してください。", "muted");
       }
       secondaryRow.style.display = "flex";
-      var manualGoalBtn = document.createElement("button");
-      manualGoalBtn.className = "main-btn"; manualGoalBtn.setAttribute("data-variant","ghost");
-      manualGoalBtn.textContent = "手動でゴール";
-      manualGoalBtn.onclick = function(){ triggerFinish(); };
-      secondaryRow.appendChild(manualGoalBtn);
+      var abortLink = document.createElement("button");
+      abortLink.className = "link-btn";
+      abortLink.textContent = "中断する";
+      abortLink.onclick = abort;
+      secondaryRow.appendChild(abortLink);
       if(!tickInterval) tickInterval = setInterval(renderTimerLive, 100);
     } else if(state.phase === "finished"){
       badge.textContent = "ゴール！"; badge.setAttribute("data-tone","accent");
       mainBtn.textContent = ""; mainBtn.disabled = true; mainBtn.style.display = "none";
       timer.setAttribute("data-tone","accent");
+      timer.classList.add("editable");
       renderTimerValue(lastElapsed);
-      showStatus("記録を保存するか、破棄してください。", "muted");
+      showStatus("タイムを上下にスライドすると修正できます。保存するか、破棄してください。", "muted");
       saveForm.hidden = false;
       return;
     }
@@ -767,6 +825,35 @@
     } else {
       timer.innerHTML = v.main + '<span class="frac">.' + v.frac + "</span>";
     }
+  }
+
+  // ---------- finished-time drag adjustment ----------
+  // Tap-and-drag on the timer while it's "editable" (finished phase only)
+  // nudges lastElapsed up/down in 0.1s steps, 12px of vertical drag per step.
+  var timeDrag = null; // {pointerId, startY, baseMs}
+  function attachTimerDrag(){
+    var timer = document.getElementById("timer");
+    timer.addEventListener("pointerdown", function(e){
+      if(state.phase !== "finished") return;
+      timeDrag = { pointerId: e.pointerId, startY: e.clientY, baseMs: lastElapsed };
+      try{ timer.setPointerCapture(e.pointerId); }catch(err){}
+      timer.classList.add("dragging");
+    });
+    timer.addEventListener("pointermove", function(e){
+      if(!timeDrag || e.pointerId !== timeDrag.pointerId) return;
+      e.preventDefault();
+      var deltaY = timeDrag.startY - e.clientY; // dragging up increases the time
+      var steps = Math.round(deltaY / 12);
+      lastElapsed = Math.max(0, timeDrag.baseMs + steps * 100);
+      renderTimerValue(lastElapsed);
+    });
+    function endDrag(e){
+      if(!timeDrag || e.pointerId !== timeDrag.pointerId) return;
+      timeDrag = null;
+      timer.classList.remove("dragging");
+    }
+    timer.addEventListener("pointerup", endDrag);
+    timer.addEventListener("pointercancel", endDrag);
   }
 
   function renderTelemetry(dist, acc){
@@ -812,6 +899,11 @@
       showStatus((which==="start"?"スタート":"ゴール") + "地点を記録しました（" + samples.length + "点平均、精度 ±1m）", "ok");
     }
   }
+  function deletePoint(which){
+    state.points[which] = null;
+    persist(); renderPoints(); updatePhaseFromPoints();
+    showStatus((which==="start"?"スタート":"ゴール") + "地点を削除しました", "ok");
+  }
   function manualSet(which){
     var lat = parseFloat(document.getElementById(which+"-lat").value);
     var lon = parseFloat(document.getElementById(which+"-lon").value);
@@ -824,10 +916,10 @@
     showStatus((which==="start"?"スタート":"ゴール") + "地点を設定しました", "ok");
   }
   function updatePhaseFromPoints(){
-    if(state.phase === "idle" && state.points.start && state.points.goal){
+    if(state.phase === "idle" && pointsRequirementMet()){
       state.phase = "ready";
     }
-    if((state.phase === "ready") && !(state.points.start && state.points.goal)){
+    if(state.phase === "ready" && !pointsRequirementMet()){
       state.phase = "idle";
     }
     renderState();
@@ -835,27 +927,27 @@
 
   // ---------- measurement flow ----------
   function arm(){
-    if(!state.points.start || !state.points.goal) return;
+    if(!pointsRequirementMet()) return;
     state.phase = "armed";
     prevFix = null;
     requestWakeLockMaybe();
-    startWatch();
+    if(state.points.start || state.points.goal) startWatch(); // nothing to watch for if fully manual with no points
     if(state.settings.startMode === "accel") startMotion();
     renderState();
   }
   function abort(){
     stopWatch(); stopMotion(); clearTickInterval(); releaseWakeLockMaybe();
     prevFix = null;
-    state.phase = (state.points.start && state.points.goal) ? "ready" : "idle";
+    state.phase = pointsRequirementMet() ? "ready" : "idle";
     renderState();
   }
   function startCountdown(){
-    if(!state.points.start || !state.points.goal) return;
+    if(!pointsRequirementMet()) return;
     state.phase = "countdown";
     prevFix = null;
     countdownRemaining = state.settings.countdownSeconds;
     requestWakeLockMaybe();
-    startWatch(); // keep GPS warm for telemetry / goal detection once running
+    if(state.points.start || state.points.goal) startWatch(); // keep GPS warm for telemetry / goal detection once running
     renderState();
     speak(String(countdownRemaining));
     countdownIntervalId = setInterval(function(){
@@ -876,7 +968,7 @@
     stopWatch();
     releaseWakeLockMaybe();
     prevFix = null;
-    state.phase = (state.points.start && state.points.goal) ? "ready" : "idle";
+    state.phase = pointsRequirementMet() ? "ready" : "idle";
     renderState();
   }
   function startWatch(){
@@ -891,21 +983,25 @@
   function onPosition(pos){
     var fix = { lat:pos.coords.latitude, lon:pos.coords.longitude, acc:pos.coords.accuracy, ts:Date.now() };
     if(state.phase === "armed"){
-      var dS = haversine(fix.lat, fix.lon, state.points.start.lat, state.points.start.lon);
-      renderTelemetry(dS, fix.acc);
-      if(state.settings.startMode === "gps" && dS <= state.settings.startRadius){
-        var startTs = interpolateCrossingTs(prevFix, fix, state.points.start.lat, state.points.start.lon, state.settings.startRadius);
-        triggerStart(startTs);
-        return;
+      if(state.points.start){
+        var dS = haversine(fix.lat, fix.lon, state.points.start.lat, state.points.start.lon);
+        renderTelemetry(dS, fix.acc);
+        if(state.settings.startMode === "gps" && dS <= state.settings.startRadius){
+          var startTs = interpolateCrossingTs(prevFix, fix, state.points.start.lat, state.points.start.lon, state.settings.startRadius);
+          triggerStart(startTs);
+          return;
+        }
       }
       prevFix = fix;
     } else if(state.phase === "running"){
-      var dG = haversine(fix.lat, fix.lon, state.points.goal.lat, state.points.goal.lon);
-      renderTelemetry(dG, fix.acc);
-      if(isGoalAutoGpsEnabled() && dG <= state.settings.goalRadius){
-        var finishTs = interpolateCrossingTs(prevFix, fix, state.points.goal.lat, state.points.goal.lon, state.settings.goalRadius);
-        triggerFinish(finishTs);
-        return;
+      if(state.points.goal){
+        var dG = haversine(fix.lat, fix.lon, state.points.goal.lat, state.points.goal.lon);
+        renderTelemetry(dG, fix.acc);
+        if(isGoalAutoGpsEnabled() && dG <= state.settings.goalRadius){
+          var finishTs = interpolateCrossingTs(prevFix, fix, state.points.goal.lat, state.points.goal.lon, state.settings.goalRadius);
+          triggerFinish(finishTs);
+          return;
+        }
       }
       prevFix = fix;
     }
@@ -1038,10 +1134,13 @@
   document.querySelectorAll('[data-action="manual-set"]').forEach(function(btn){
     btn.addEventListener("click", function(){ manualSet(btn.getAttribute("data-target")); });
   });
+  document.querySelectorAll('[data-action="delete-point"]').forEach(function(btn){
+    btn.addEventListener("click", function(){ deletePoint(btn.getAttribute("data-target")); });
+  });
   document.querySelectorAll("#mode-group .pill").forEach(function(btn){
     btn.addEventListener("click", function(){
       state.settings.startMode = btn.getAttribute("data-mode");
-      persist(); renderSettingsUI();
+      persist(); renderSettingsUI(); updatePhaseFromPoints();
     });
   });
   document.getElementById("start-radius").addEventListener("input", function(e){
@@ -1067,7 +1166,7 @@
   document.querySelectorAll("#countdown-goal-group .pill").forEach(function(btn){
     btn.addEventListener("click", function(){
       state.settings.countdownGoalMode = btn.getAttribute("data-goalmode");
-      persist(); renderSettingsUI();
+      persist(); renderSettingsUI(); updatePhaseFromPoints();
     });
   });
   [["sw-wakelock","wakeLock"],["sw-sound","sound"],["sw-vibrate","vibrate"]].forEach(function(pair){
@@ -1098,6 +1197,7 @@
   renderSettingsUI();
   renderKeyBindUI();
   renderHistory();
+  attachTimerDrag();
   updatePhaseFromPoints();
   renderState();
 })();
