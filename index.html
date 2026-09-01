@@ -1,0 +1,848 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>林道ステージタイマー</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Rajdhani:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600;700&display=swap');
+
+  :root{
+    --bg:#eef0e4;
+    --surface:#ffffff;
+    --surface-2:#e4e7d6;
+    --border:#c9cdb6;
+    --text:#1c2118;
+    --text-dim:#5b6350;
+    --accent:#d9540a;
+    --accent-contrast:#fff5ec;
+    --ok:#1f8a4c;
+    --warn:#8a6207;
+    --danger:#b23325;
+    --mono-surface:#f6f4e9;
+    --shadow: 0 1px 0 rgba(28,33,24,.06);
+    --font-display:'Rajdhani', system-ui, sans-serif;
+    --font-body:'IBM Plex Sans', system-ui, sans-serif;
+    --font-mono:'IBM Plex Mono','SFMono-Regular', Menlo, monospace;
+  }
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      --bg:#14170f;
+      --surface:#1d211a;
+      --surface-2:#262b1f;
+      --border:#3a4030;
+      --text:#eef1e4;
+      --text-dim:#9aa389;
+      --accent:#ff6a1a;
+      --accent-contrast:#1a0c02;
+      --ok:#4bd67f;
+      --warn:#f0b93c;
+      --danger:#ff5c48;
+      --mono-surface:#191c14;
+      --shadow: 0 1px 0 rgba(0,0,0,.4);
+    }
+  }
+  :root[data-theme="dark"]{
+    --bg:#14170f;
+    --surface:#1d211a;
+    --surface-2:#262b1f;
+    --border:#3a4030;
+    --text:#eef1e4;
+    --text-dim:#9aa389;
+    --accent:#ff6a1a;
+    --accent-contrast:#1a0c02;
+    --ok:#4bd67f;
+    --warn:#f0b93c;
+    --danger:#ff5c48;
+    --mono-surface:#191c14;
+    --shadow: 0 1px 0 rgba(0,0,0,.4);
+  }
+
+  *{ box-sizing:border-box; }
+  html, body{ height:100%; }
+  body{
+    margin:0;
+    background:var(--bg);
+    color:var(--text);
+    font-family:var(--font-body);
+    -webkit-font-smoothing:antialiased;
+    text-rendering:optimizeLegibility;
+  }
+  ::selection{ background:var(--accent); color:var(--accent-contrast); }
+
+  a{ color:var(--accent); }
+  h1,h2,h3{ font-family:var(--font-display); font-weight:700; letter-spacing:.01em; text-wrap:balance; margin:0; }
+  .num{ font-family:var(--font-mono); font-variant-numeric:tabular-nums; }
+
+  button, input, select{ font-family:inherit; color:inherit; }
+  button{ cursor:pointer; }
+  button:disabled{ cursor:not-allowed; opacity:.5; }
+  :focus-visible{ outline:2px solid var(--accent); outline-offset:2px; }
+
+  .wrap{ max-width:560px; margin:0 auto; padding:0 0 3rem; }
+
+  /* ---- header ---- */
+  .head{
+    position:relative;
+    background:
+      radial-gradient(circle at 15% -20%, color-mix(in srgb, var(--accent) 16%, transparent), transparent 60%),
+      repeating-radial-gradient(circle at 82% 0%, transparent 0 26px, color-mix(in srgb, var(--accent) 7%, transparent) 27px 28px, transparent 29px 54px),
+      var(--surface-2);
+    border-bottom:3px solid var(--accent);
+    padding:1.5rem 1.25rem 1.35rem;
+    overflow:hidden;
+  }
+  .head .eyebrow{
+    font-family:var(--font-mono); font-size:.7rem; letter-spacing:.14em; text-transform:uppercase;
+    color:var(--text-dim); display:flex; align-items:center; gap:.5rem; margin-bottom:.4rem;
+  }
+  .flagmark{ width:14px; height:14px; flex:none; background:
+      conic-gradient(var(--text) 0 25%, transparent 0 50%, var(--text) 0 75%, transparent 0 100%);
+      background-size:7px 7px; border:1px solid var(--text-dim); }
+  .head h1{ font-size:1.85rem; line-height:1.05; }
+  .head p{ margin:.4rem 0 0; color:var(--text-dim); font-size:.9rem; max-width:34ch; }
+
+  .content{ padding:1.1rem 1.1rem 0; display:flex; flex-direction:column; gap:1rem; }
+
+  /* angled-corner instrument panel motif */
+  .panel{
+    background:var(--surface);
+    border:1px solid var(--border);
+    box-shadow:var(--shadow);
+    clip-path: polygon(14px 0, 100% 0, 100% calc(100% - 14px), calc(100% - 14px) 100%, 0 100%, 0 14px);
+    padding:1rem;
+  }
+  .panel-tight{ padding:.85rem .9rem; }
+
+  .section-label{
+    font-family:var(--font-display); font-weight:600; font-size:.78rem;
+    letter-spacing:.1em; text-transform:uppercase; color:var(--text-dim);
+    display:flex; align-items:center; gap:.5rem; margin-bottom:.65rem;
+  }
+  .section-label::after{ content:''; flex:1; height:1px; background:var(--border); }
+
+  /* ---- instrument / timer ---- */
+  .instrument{ display:flex; flex-direction:column; align-items:center; text-align:center; gap:.6rem; }
+  .badge{
+    font-family:var(--font-display); font-weight:700; font-size:.85rem; letter-spacing:.08em;
+    text-transform:uppercase; padding:.3rem 1rem;
+    clip-path: polygon(8px 0, 100% 0, calc(100% - 8px) 100%, 0 100%);
+    border:1px solid var(--border); color:var(--text-dim); background:var(--surface-2);
+  }
+  .badge[data-tone="warn"]{ color:var(--warn); border-color:var(--warn); animation:pulse 1.4s ease-in-out infinite; }
+  .badge[data-tone="ok"]{ color:var(--ok); border-color:var(--ok); animation:pulse 1.4s ease-in-out infinite; }
+  .badge[data-tone="accent"]{ color:var(--accent-contrast); border-color:var(--accent); background:var(--accent); }
+  @media (prefers-reduced-motion: reduce){ .badge{ animation:none !important; } }
+  @keyframes pulse{ 0%,100%{ opacity:1; } 50%{ opacity:.55; } }
+
+  .timer{ font-family:var(--font-mono); font-weight:700; font-size:clamp(3rem, 15vw, 5.2rem);
+    line-height:1; letter-spacing:.01em; font-variant-numeric:tabular-nums; }
+  .timer .frac{ font-size:.5em; color:var(--text-dim); }
+  .timer[data-tone="ok"]{ color:var(--ok); }
+  .timer[data-tone="accent"]{ color:var(--accent); }
+
+  .telemetry{ display:grid; grid-template-columns:1fr 1fr; gap:.6rem; width:100%; margin-top:.3rem; }
+  .telemetry .cell{ background:var(--mono-surface); border:1px solid var(--border); padding:.5rem .6rem; text-align:left; }
+  .telemetry .cell .k{ font-size:.68rem; letter-spacing:.06em; text-transform:uppercase; color:var(--text-dim); }
+  .telemetry .cell .v{ font-family:var(--font-mono); font-size:1rem; margin-top:.15rem; }
+
+  .main-btn{
+    width:100%; border:none; font-family:var(--font-display); font-weight:700; font-size:1.15rem;
+    letter-spacing:.03em; padding:.95rem 1rem; min-height:52px;
+    clip-path: polygon(10px 0, 100% 0, 100% calc(100% - 10px), calc(100% - 10px) 100%, 0 100%, 0 10px);
+    background:var(--accent); color:var(--accent-contrast);
+  }
+  .main-btn[data-variant="danger"]{ background:var(--danger); color:#fff; }
+  .main-btn[data-variant="ghost"]{ background:transparent; color:var(--text); border:1px solid var(--border); }
+  .btn-row{ display:flex; gap:.6rem; width:100%; }
+  .btn-row .main-btn{ flex:1; }
+  .link-btn{ background:none; border:none; color:var(--text-dim); font-size:.82rem; text-decoration:underline; padding:.3rem; }
+
+  .status-line{ font-size:.85rem; min-height:1.2em; text-align:center; }
+  .status-line[data-tone="ok"]{ color:var(--ok); }
+  .status-line[data-tone="warn"]{ color:var(--warn); }
+  .status-line[data-tone="danger"]{ color:var(--danger); }
+  .status-line[data-tone="muted"]{ color:var(--text-dim); }
+
+  /* ---- waypoints ---- */
+  .waypoints{ display:grid; grid-template-columns:1fr 1fr; gap:.8rem; }
+  @media (max-width:420px){ .waypoints{ grid-template-columns:1fr; } }
+  .wp h3{ font-size:1rem; display:flex; align-items:center; gap:.4rem; }
+  .wp .dot{ width:9px; height:9px; border-radius:50%; flex:none; }
+  .wp .dot.start{ background:var(--ok); }
+  .wp .dot.goal{ background:var(--accent); }
+  .wp .coords{ font-family:var(--font-mono); font-size:.86rem; color:var(--text-dim); margin:.45rem 0 .6rem; min-height:2.4em; white-space:pre-line; }
+  .wp .coords.set{ color:var(--text); }
+  .wp-actions{ display:flex; flex-direction:column; gap:.4rem; }
+  .btn-sm{
+    border:1px solid var(--border); background:var(--surface-2); color:var(--text);
+    padding:.5rem .6rem; font-size:.82rem; text-align:left; min-height:40px;
+  }
+  .btn-sm:hover{ border-color:var(--accent); }
+  .manual-entry{ display:none; gap:.4rem; margin-top:.5rem; }
+  .manual-entry.open{ display:flex; }
+  .manual-entry input{ width:100%; background:var(--mono-surface); border:1px solid var(--border); padding:.4rem .5rem; font-family:var(--font-mono); font-size:.82rem; }
+  .manual-entry .row{ display:flex; gap:.4rem; }
+
+  /* ---- settings ---- */
+  details.panel{ padding:0; }
+  details.panel > summary{ list-style:none; cursor:pointer; padding:1rem; display:flex; align-items:center; justify-content:space-between; font-family:var(--font-display); font-weight:600; letter-spacing:.04em; }
+  details.panel > summary::-webkit-details-marker{ display:none; }
+  details.panel > summary::after{ content:'+'; font-size:1.3rem; color:var(--text-dim); }
+  details.panel[open] > summary::after{ content:'–'; }
+  .details-body{ padding:0 1rem 1rem; display:flex; flex-direction:column; gap:1rem; }
+
+  .field{ display:flex; flex-direction:column; gap:.35rem; }
+  .field .label-row{ display:flex; justify-content:space-between; font-size:.85rem; }
+  .field .label-row .val{ font-family:var(--font-mono); color:var(--text-dim); }
+  input[type="range"]{ width:100%; accent-color:var(--accent); }
+
+  .pillgroup{ display:flex; gap:.4rem; }
+  .pill{ flex:1; border:1px solid var(--border); background:var(--surface-2); padding:.55rem .5rem; font-size:.85rem; text-align:center; }
+  .pill[aria-pressed="true"]{ background:var(--accent); border-color:var(--accent); color:var(--accent-contrast); font-weight:600; }
+
+  .switch-row{ display:flex; align-items:center; justify-content:space-between; font-size:.88rem; }
+  .switch{ position:relative; width:42px; height:24px; border:1px solid var(--border); background:var(--surface-2); flex:none; }
+  .switch::after{ content:''; position:absolute; top:2px; left:2px; width:18px; height:18px; background:var(--text-dim); transition:transform .15s ease; }
+  .switch[aria-pressed="true"]{ border-color:var(--accent); }
+  .switch[aria-pressed="true"]::after{ transform:translateX(18px); background:var(--accent); }
+  @media (prefers-reduced-motion: reduce){ .switch::after{ transition:none; } }
+
+  .note{ font-size:.8rem; color:var(--text-dim); line-height:1.5; }
+
+  /* ---- history ---- */
+  .table-wrap{ overflow-x:auto; }
+  table{ width:100%; border-collapse:collapse; font-size:.86rem; }
+  th{ text-align:left; font-family:var(--font-display); font-weight:600; font-size:.72rem; letter-spacing:.08em; text-transform:uppercase; color:var(--text-dim); padding:.4rem .5rem; border-bottom:1px solid var(--border); white-space:nowrap; }
+  td{ padding:.55rem .5rem; border-bottom:1px solid var(--border); vertical-align:top; }
+  td.time{ font-family:var(--font-mono); font-weight:600; white-space:nowrap; }
+  tbody tr:nth-child(odd){ background:var(--mono-surface); }
+  .empty-row td{ color:var(--text-dim); text-align:center; padding:1.2rem .5rem; }
+  .del-btn{ background:none; border:none; color:var(--text-dim); font-size:.78rem; text-decoration:underline; padding:.2rem; }
+  .del-btn:hover{ color:var(--danger); }
+  .confirm-row{ display:flex; gap:.4rem; align-items:center; }
+  .confirm-row button{ font-size:.76rem; padding:.2rem .45rem; border:1px solid var(--border); background:var(--surface-2); }
+
+  .save-form{ display:flex; flex-direction:column; gap:.55rem; margin-top:.5rem; }
+  .save-form input{ background:var(--mono-surface); border:1px solid var(--border); padding:.55rem .6rem; font-size:.88rem; }
+
+  footer.foot{ padding:0 1.1rem; margin-top:.4rem; }
+  footer.foot .note{ border-top:1px solid var(--border); padding-top:1rem; }
+</style>
+</head>
+<body>
+
+<div class="wrap">
+  <div class="head">
+    <div class="eyebrow"><span class="flagmark" aria-hidden="true"></span>OFFROAD STAGE TIMING</div>
+    <h1>林道ステージタイマー</h1>
+    <p>スタート地点からゴール地点まで、走行タイムを計測します。GPSまたは加速度でスタートを検知し、GPSでゴールを検知します。</p>
+  </div>
+
+  <div class="content">
+
+    <!-- Waypoints -->
+    <div class="waypoints">
+      <div class="panel wp" id="wp-start">
+        <h3><span class="dot start"></span>スタート地点</h3>
+        <div class="coords" id="start-coords">未設定</div>
+        <div class="wp-actions">
+          <button class="btn-sm" data-action="capture" data-target="start">📍現在地を記録</button>
+          <button class="btn-sm" data-action="toggle-manual" data-target="start">座標を手入力</button>
+        </div>
+        <div class="manual-entry" id="start-manual">
+          <div class="row">
+            <input type="number" step="any" placeholder="緯度" id="start-lat" inputmode="decimal">
+            <input type="number" step="any" placeholder="経度" id="start-lon" inputmode="decimal">
+          </div>
+          <button class="btn-sm" data-action="manual-set" data-target="start">この座標を設定</button>
+        </div>
+      </div>
+
+      <div class="panel wp" id="wp-goal">
+        <h3><span class="dot goal"></span>ゴール地点</h3>
+        <div class="coords" id="goal-coords">未設定</div>
+        <div class="wp-actions">
+          <button class="btn-sm" data-action="capture" data-target="goal">📍現在地を記録</button>
+          <button class="btn-sm" data-action="toggle-manual" data-target="goal">座標を手入力</button>
+        </div>
+        <div class="manual-entry" id="goal-manual">
+          <div class="row">
+            <input type="number" step="any" placeholder="緯度" id="goal-lat" inputmode="decimal">
+            <input type="number" step="any" placeholder="経度" id="goal-lon" inputmode="decimal">
+          </div>
+          <button class="btn-sm" data-action="manual-set" data-target="goal">この座標を設定</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Instrument -->
+    <div class="panel instrument">
+      <div class="badge" id="badge" data-tone="">地点未設定</div>
+      <div class="timer" id="timer" data-tone="">0:00<span class="frac">.00</span></div>
+
+      <div class="telemetry" id="telemetry" hidden>
+        <div class="cell"><div class="k">GPS精度</div><div class="v num" id="tele-acc">—</div></div>
+        <div class="cell"><div class="k" id="tele-dist-label">スタートまで</div><div class="v num" id="tele-dist">—</div></div>
+      </div>
+
+      <div class="status-line" id="status" data-tone="muted"></div>
+
+      <div style="width:100%; margin-top:.4rem;">
+        <button class="main-btn" id="main-btn" disabled>スタート・ゴール地点を設定してください</button>
+        <div class="btn-row" id="secondary-row" style="display:none; margin-top:.55rem;"></div>
+      </div>
+
+      <div class="save-form" id="save-form" hidden>
+        <input type="text" id="run-note" placeholder="備考（任意・例：北ルート、雨）" maxlength="60">
+        <div class="btn-row">
+          <button class="main-btn" id="save-run-btn">記録を保存</button>
+          <button class="main-btn" data-variant="ghost" id="discard-run-btn">保存しない</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Settings -->
+    <details class="panel">
+      <summary>計測設定</summary>
+      <div class="details-body">
+
+        <div class="field">
+          <div class="label-row"><span>スタートの検知方式</span></div>
+          <div class="pillgroup" id="mode-group">
+            <button class="pill" data-mode="gps" aria-pressed="true">GPS（半径到達）</button>
+            <button class="pill" data-mode="accel" aria-pressed="false">加速度（発進検知）</button>
+          </div>
+          <div class="note" id="mode-note">スタート地点の半径内に入ったら計測を開始します。</div>
+        </div>
+
+        <div class="field">
+          <div class="label-row"><span>スタート判定半径</span><span class="val" id="start-radius-val">25 m</span></div>
+          <input type="range" id="start-radius" min="10" max="100" step="5" value="25">
+        </div>
+
+        <div class="field">
+          <div class="label-row"><span>ゴール判定半径</span><span class="val" id="goal-radius-val">25 m</span></div>
+          <input type="range" id="goal-radius" min="10" max="100" step="5" value="25">
+        </div>
+
+        <div class="field" id="accel-field" style="display:none;">
+          <div class="label-row"><span>加速度しきい値</span><span class="val" id="accel-thresh-val">3.5 m/s²</span></div>
+          <input type="range" id="accel-thresh" min="1" max="8" step="0.5" value="3.5">
+        </div>
+
+        <div class="switch-row">
+          <span>画面ロックを防止（計測中）</span>
+          <button class="switch" id="sw-wakelock" aria-pressed="true"></button>
+        </div>
+        <div class="switch-row">
+          <span>効果音で通知</span>
+          <button class="switch" id="sw-sound" aria-pressed="true"></button>
+        </div>
+        <div class="switch-row">
+          <span>バイブレーションで通知</span>
+          <button class="switch" id="sw-vibrate" aria-pressed="true"></button>
+        </div>
+
+        <button class="btn-sm" id="clear-points-btn">スタート・ゴール地点をクリア</button>
+      </div>
+    </details>
+
+    <!-- History -->
+    <div class="panel" style="padding:1rem;">
+      <div class="section-label">計測記録</div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>日時</th><th>方式</th><th>タイム</th><th>備考</th><th></th></tr>
+          </thead>
+          <tbody id="history-body">
+            <tr class="empty-row"><td colspan="5">まだ記録がありません</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+  </div>
+
+  <footer class="foot">
+    <p class="note">
+      GPSはスマートフォンのブラウザ機能を使用します。樹木が茂った林道では電波が弱くなり、誤差が数十mになることがあるため、判定半径は広めの設定をおすすめします。計測中は画面をロックせずアプリのタブを開いたままにしてください。走行中の操作は行わず、安全を最優先してください。
+    </p>
+  </footer>
+</div>
+
+<script>
+(function(){
+  "use strict";
+
+  var STORE_KEY = "rindoTimer.v1";
+  var state = {
+    phase: "idle", // idle | ready | armed | running | finished
+    points: { start: null, goal: null },
+    settings: { startMode:"gps", startRadius:25, goalRadius:25, accelThreshold:3.5, sound:true, vibrate:true, wakeLock:true },
+    history: []
+  };
+  var watchId = null;
+  var motionActive = false;
+  var motionSamples = [];
+  var startTimestamp = null;
+  var tickInterval = null;
+  var wakeLockObj = null;
+  var lastElapsed = 0;
+  var audioCtx = null;
+
+  // ---------- persistence ----------
+  function persist(){
+    try{ localStorage.setItem(STORE_KEY, JSON.stringify({points:state.points, settings:state.settings, history:state.history})); }catch(e){}
+  }
+  function loadPersisted(){
+    try{
+      var raw = localStorage.getItem(STORE_KEY);
+      if(raw){
+        var d = JSON.parse(raw);
+        if(d.points) state.points = d.points;
+        if(d.settings) state.settings = Object.assign(state.settings, d.settings);
+        if(d.history) state.history = d.history;
+      }
+    }catch(e){}
+  }
+
+  // ---------- helpers ----------
+  function haversine(lat1, lon1, lat2, lon2){
+    var R = 6371000;
+    var toRad = function(d){ return d*Math.PI/180; };
+    var dLat = toRad(lat2-lat1);
+    var dLon = toRad(lon2-lon1);
+    var a = Math.sin(dLat/2)*Math.sin(dLat/2) + Math.cos(toRad(lat1))*Math.cos(toRad(lat2))*Math.sin(dLon/2)*Math.sin(dLon/2);
+    var c = 2*Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+    return R*c;
+  }
+  function fmtDist(m){
+    if(m == null || isNaN(m)) return "—";
+    if(m < 1000) return Math.round(m) + " m";
+    return (m/1000).toFixed(2) + " km";
+  }
+  function fmtCoord(p){
+    if(!p) return "未設定";
+    return p.lat.toFixed(6) + ", " + p.lon.toFixed(6) + "\n精度 ±" + Math.round(p.acc||0) + "m";
+  }
+  function fmtDuration(ms){
+    var totalSec = ms/1000;
+    var h = Math.floor(totalSec/3600);
+    var m = Math.floor((totalSec%3600)/60);
+    var s = totalSec%60;
+    if(h > 0){
+      return h + ":" + String(m).padStart(2,"0") + ":" + s.toFixed(1).padStart(4,"0");
+    }
+    var secParts = s.toFixed(2).split(".");
+    return { main: m + ":" + secParts[0].padStart(2,"0"), frac: secParts[1] };
+  }
+  function geoErrorMessage(err){
+    if(!err) return "位置情報を取得できませんでした";
+    switch(err.code){
+      case 1: return "位置情報の利用が許可されていません。ブラウザの設定を確認してください";
+      case 2: return "位置情報を取得できませんでした（電波状況を確認してください）";
+      case 3: return "位置情報の取得がタイムアウトしました";
+      default: return "位置情報エラー：" + err.message;
+    }
+  }
+  function showStatus(msg, tone){
+    var el = document.getElementById("status");
+    el.textContent = msg || "";
+    el.setAttribute("data-tone", tone || "muted");
+  }
+  function playTone(freq, dur){
+    if(!state.settings.sound) return;
+    try{
+      audioCtx = audioCtx || new (window.AudioContext||window.webkitAudioContext)();
+      var o = audioCtx.createOscillator();
+      var g = audioCtx.createGain();
+      o.frequency.value = freq; o.type = "square"; g.gain.value = 0.06;
+      o.connect(g); g.connect(audioCtx.destination);
+      o.start();
+      setTimeout(function(){ try{ o.stop(); }catch(e){} }, dur);
+    }catch(e){}
+  }
+  function doVibrate(pattern){
+    if(state.settings.vibrate && navigator.vibrate){ try{ navigator.vibrate(pattern); }catch(e){} }
+  }
+  function requestWakeLockMaybe(){
+    if(!state.settings.wakeLock || !("wakeLock" in navigator)) return;
+    navigator.wakeLock.request("screen").then(function(wl){ wakeLockObj = wl; }).catch(function(){});
+  }
+  function releaseWakeLockMaybe(){
+    if(wakeLockObj){ try{ wakeLockObj.release(); }catch(e){} wakeLockObj = null; }
+  }
+
+  // ---------- rendering ----------
+  function renderPoints(){
+    document.getElementById("start-coords").textContent = fmtCoord(state.points.start);
+    document.getElementById("start-coords").classList.toggle("set", !!state.points.start);
+    document.getElementById("goal-coords").textContent = fmtCoord(state.points.goal);
+    document.getElementById("goal-coords").classList.toggle("set", !!state.points.goal);
+  }
+
+  function renderSettingsUI(){
+    document.querySelectorAll("#mode-group .pill").forEach(function(btn){
+      var on = btn.getAttribute("data-mode") === state.settings.startMode;
+      btn.setAttribute("aria-pressed", on ? "true" : "false");
+    });
+    document.getElementById("mode-note").textContent = state.settings.startMode === "gps"
+      ? "スタート地点の半径内に入ったら計測を開始します。"
+      : "急な発進（加速度の変化）を検知して計測を開始します。GPS電波が弱い林道入口向けです。";
+    document.getElementById("accel-field").style.display = state.settings.startMode === "accel" ? "flex" : "none";
+
+    document.getElementById("start-radius").value = state.settings.startRadius;
+    document.getElementById("start-radius-val").textContent = state.settings.startRadius + " m";
+    document.getElementById("goal-radius").value = state.settings.goalRadius;
+    document.getElementById("goal-radius-val").textContent = state.settings.goalRadius + " m";
+    document.getElementById("accel-thresh").value = state.settings.accelThreshold;
+    document.getElementById("accel-thresh-val").textContent = state.settings.accelThreshold + " m/s²";
+
+    document.getElementById("sw-wakelock").setAttribute("aria-pressed", state.settings.wakeLock);
+    document.getElementById("sw-sound").setAttribute("aria-pressed", state.settings.sound);
+    document.getElementById("sw-vibrate").setAttribute("aria-pressed", state.settings.vibrate);
+  }
+
+  function renderHistory(){
+    var body = document.getElementById("history-body");
+    body.innerHTML = "";
+    if(state.history.length === 0){
+      body.innerHTML = '<tr class="empty-row"><td colspan="5">まだ記録がありません</td></tr>';
+      return;
+    }
+    state.history.forEach(function(run){
+      var tr = document.createElement("tr");
+      var d = new Date(run.date);
+      var dateStr = (d.getMonth()+1) + "/" + d.getDate() + " " + String(d.getHours()).padStart(2,"0") + ":" + String(d.getMinutes()).padStart(2,"0");
+      var durVal = fmtDuration(run.elapsedMs);
+      var durText = typeof durVal === "string" ? durVal : (durVal.main + "." + durVal.frac);
+      tr.innerHTML =
+        '<td>'+dateStr+'</td>'+
+        '<td>'+(run.mode==="gps"?"GPS":"加速度")+'</td>'+
+        '<td class="time num">'+durText+'</td>'+
+        '<td>'+(run.note ? escapeHtml(run.note) : '<span style="color:var(--text-dim)">—</span>')+'</td>'+
+        '<td></td>';
+      var delCell = tr.lastElementChild;
+      var delBtn = document.createElement("button");
+      delBtn.className = "del-btn";
+      delBtn.textContent = "削除";
+      delBtn.addEventListener("click", function(){ confirmDelete(run.id, delCell, delBtn); });
+      delCell.appendChild(delBtn);
+      body.appendChild(tr);
+    });
+  }
+  function confirmDelete(id, cell, btn){
+    cell.innerHTML = "";
+    var row = document.createElement("div");
+    row.className = "confirm-row";
+    row.innerHTML = '<span style="color:var(--danger); font-size:.78rem;">削除する？</span>';
+    var yes = document.createElement("button"); yes.textContent = "はい";
+    var no = document.createElement("button"); no.textContent = "いいえ";
+    yes.addEventListener("click", function(){
+      state.history = state.history.filter(function(r){ return r.id !== id; });
+      persist(); renderHistory();
+    });
+    no.addEventListener("click", renderHistory);
+    row.appendChild(yes); row.appendChild(no);
+    cell.appendChild(row);
+  }
+  function escapeHtml(s){
+    var d = document.createElement("div"); d.textContent = s; return d.innerHTML;
+  }
+
+  function renderState(){
+    var badge = document.getElementById("badge");
+    var mainBtn = document.getElementById("main-btn");
+    var secondaryRow = document.getElementById("secondary-row");
+    var timer = document.getElementById("timer");
+    var telemetry = document.getElementById("telemetry");
+    var saveForm = document.getElementById("save-form");
+    secondaryRow.innerHTML = "";
+    secondaryRow.style.display = "none";
+    saveForm.hidden = true;
+
+    if(state.phase === "idle"){
+      badge.textContent = "地点未設定"; badge.setAttribute("data-tone","");
+      mainBtn.textContent = "スタート・ゴール地点を設定してください";
+      mainBtn.disabled = true; mainBtn.removeAttribute("data-variant"); mainBtn.onclick = null;
+      timer.setAttribute("data-tone",""); telemetry.hidden = true;
+      showStatus("", "muted");
+    } else if(state.phase === "ready"){
+      badge.textContent = "準備完了"; badge.setAttribute("data-tone","");
+      mainBtn.textContent = "▶ 計測を開始（待機モード）";
+      mainBtn.disabled = false; mainBtn.removeAttribute("data-variant"); mainBtn.onclick = arm;
+      timer.setAttribute("data-tone",""); telemetry.hidden = true;
+      showStatus("開始すると、スタート地点の検知を待ち受けます。", "muted");
+    } else if(state.phase === "armed"){
+      badge.textContent = "計測待機中"; badge.setAttribute("data-tone","warn");
+      mainBtn.textContent = "待機を解除"; mainBtn.setAttribute("data-variant","ghost");
+      mainBtn.disabled = false; mainBtn.onclick = abort;
+      telemetry.hidden = false;
+      document.getElementById("tele-dist-label").textContent = "スタートまで";
+      if(state.settings.startMode === "gps"){
+        showStatus("スタート地点の半径 " + state.settings.startRadius + "m に入ると自動で開始します。", "muted");
+      } else {
+        showStatus("発進を検知すると自動で開始します。急ブレーキ・段差に注意してください。", "muted");
+      }
+      secondaryRow.style.display = "flex";
+      var manualStartBtn = document.createElement("button");
+      manualStartBtn.className = "main-btn"; manualStartBtn.setAttribute("data-variant","ghost");
+      manualStartBtn.textContent = "手動でスタート";
+      manualStartBtn.onclick = function(){ triggerStart(); };
+      secondaryRow.appendChild(manualStartBtn);
+    } else if(state.phase === "running"){
+      badge.textContent = "計測中"; badge.setAttribute("data-tone","ok");
+      mainBtn.textContent = "リタイア（中断）"; mainBtn.setAttribute("data-variant","danger");
+      mainBtn.disabled = false; mainBtn.onclick = abort;
+      timer.setAttribute("data-tone","ok"); telemetry.hidden = false;
+      document.getElementById("tele-dist-label").textContent = "ゴールまで";
+      showStatus("ゴール地点の半径 " + state.settings.goalRadius + "m に入ると自動で終了します。", "muted");
+      secondaryRow.style.display = "flex";
+      var manualGoalBtn = document.createElement("button");
+      manualGoalBtn.className = "main-btn"; manualGoalBtn.setAttribute("data-variant","ghost");
+      manualGoalBtn.textContent = "手動でゴール";
+      manualGoalBtn.onclick = function(){ triggerFinish(); };
+      secondaryRow.appendChild(manualGoalBtn);
+      if(!tickInterval) tickInterval = setInterval(renderTimerLive, 100);
+    } else if(state.phase === "finished"){
+      badge.textContent = "ゴール！"; badge.setAttribute("data-tone","accent");
+      mainBtn.textContent = ""; mainBtn.disabled = true; mainBtn.style.display = "none";
+      timer.setAttribute("data-tone","accent");
+      renderTimerValue(lastElapsed);
+      showStatus("記録を保存するか、破棄してください。", "muted");
+      saveForm.hidden = false;
+      return;
+    }
+    document.getElementById("main-btn").style.display = "";
+  }
+
+  function renderTimerLive(){
+    if(state.phase !== "running") return;
+    renderTimerValue(Date.now() - startTimestamp);
+  }
+  function renderTimerValue(ms){
+    var timer = document.getElementById("timer");
+    var v = fmtDuration(ms);
+    if(typeof v === "string"){
+      timer.innerHTML = v;
+    } else {
+      timer.innerHTML = v.main + '<span class="frac">.' + v.frac + "</span>";
+    }
+  }
+
+  function renderTelemetry(dist, acc){
+    document.getElementById("tele-dist").textContent = fmtDist(dist);
+    document.getElementById("tele-acc").textContent = acc != null ? ("±" + Math.round(acc) + " m") : "—";
+  }
+
+  // ---------- point capture ----------
+  function captureLocation(which){
+    if(!navigator.geolocation){ showStatus("この環境では位置情報を利用できません", "danger"); return; }
+    showStatus("位置情報を取得中…", "muted");
+    navigator.geolocation.getCurrentPosition(function(pos){
+      var p = { lat:pos.coords.latitude, lon:pos.coords.longitude, acc:pos.coords.accuracy, ts:Date.now() };
+      state.points[which] = p;
+      persist(); renderPoints(); updatePhaseFromPoints();
+      showStatus((which==="start"?"スタート":"ゴール") + "地点を記録しました", "ok");
+    }, function(err){
+      showStatus(geoErrorMessage(err), "danger");
+    }, { enableHighAccuracy:true, timeout:15000, maximumAge:0 });
+  }
+  function manualSet(which){
+    var lat = parseFloat(document.getElementById(which+"-lat").value);
+    var lon = parseFloat(document.getElementById(which+"-lon").value);
+    if(isNaN(lat) || isNaN(lon) || lat < -90 || lat > 90 || lon < -180 || lon > 180){
+      showStatus("緯度・経度を正しく入力してください", "danger"); return;
+    }
+    state.points[which] = { lat:lat, lon:lon, acc:0, ts:Date.now() };
+    persist(); renderPoints(); updatePhaseFromPoints();
+    document.getElementById(which+"-manual").classList.remove("open");
+    showStatus((which==="start"?"スタート":"ゴール") + "地点を設定しました", "ok");
+  }
+  function updatePhaseFromPoints(){
+    if(state.phase === "idle" && state.points.start && state.points.goal){
+      state.phase = "ready";
+    }
+    if((state.phase === "ready") && !(state.points.start && state.points.goal)){
+      state.phase = "idle";
+    }
+    renderState();
+  }
+
+  // ---------- measurement flow ----------
+  function arm(){
+    if(!state.points.start || !state.points.goal) return;
+    state.phase = "armed";
+    requestWakeLockMaybe();
+    startWatch();
+    if(state.settings.startMode === "accel") startMotion();
+    renderState();
+  }
+  function abort(){
+    stopWatch(); stopMotion(); clearTickInterval(); releaseWakeLockMaybe();
+    state.phase = (state.points.start && state.points.goal) ? "ready" : "idle";
+    renderState();
+  }
+  function startWatch(){
+    if(watchId != null || !navigator.geolocation) return;
+    watchId = navigator.geolocation.watchPosition(onPosition, function(err){
+      showStatus(geoErrorMessage(err), "warn");
+    }, { enableHighAccuracy:true, maximumAge:1000, timeout:20000 });
+  }
+  function stopWatch(){
+    if(watchId != null){ navigator.geolocation.clearWatch(watchId); watchId = null; }
+  }
+  function onPosition(pos){
+    var fix = { lat:pos.coords.latitude, lon:pos.coords.longitude, acc:pos.coords.accuracy };
+    if(state.phase === "armed"){
+      var dS = haversine(fix.lat, fix.lon, state.points.start.lat, state.points.start.lon);
+      renderTelemetry(dS, fix.acc);
+      if(state.settings.startMode === "gps" && dS <= state.settings.startRadius){
+        triggerStart();
+      }
+    } else if(state.phase === "running"){
+      var dG = haversine(fix.lat, fix.lon, state.points.goal.lat, state.points.goal.lon);
+      renderTelemetry(dG, fix.acc);
+      if(dG <= state.settings.goalRadius){
+        triggerFinish();
+      }
+    }
+  }
+
+  function startMotion(){
+    function attach(){
+      window.addEventListener("devicemotion", onMotion);
+      motionActive = true;
+      motionSamples = [];
+    }
+    if(typeof DeviceMotionEvent !== "undefined" && typeof DeviceMotionEvent.requestPermission === "function"){
+      DeviceMotionEvent.requestPermission().then(function(res){
+        if(res === "granted") attach();
+        else showStatus("加速度センサーの利用が許可されませんでした。GPS方式をお使いください。", "warn");
+      }).catch(function(){
+        showStatus("加速度センサーを利用できません", "warn");
+      });
+    } else if(typeof DeviceMotionEvent !== "undefined"){
+      attach();
+    } else {
+      showStatus("この端末・ブラウザは加速度センサーに対応していません", "warn");
+    }
+  }
+  function stopMotion(){
+    if(motionActive){ window.removeEventListener("devicemotion", onMotion); motionActive = false; }
+  }
+  function onMotion(e){
+    if(state.phase !== "armed" || state.settings.startMode !== "accel") return;
+    var usesLinear = e.acceleration && e.acceleration.x != null;
+    var a = usesLinear ? e.acceleration : e.accelerationIncludingGravity;
+    if(!a || a.x == null) return;
+    var mag = Math.sqrt((a.x||0)*(a.x||0) + (a.y||0)*(a.y||0) + (a.z||0)*(a.z||0));
+    var delta = usesLinear ? mag : Math.abs(mag - 9.8);
+    motionSamples.push(delta);
+    if(motionSamples.length > 4) motionSamples.shift();
+    var avg = motionSamples.reduce(function(x,y){return x+y;}, 0) / motionSamples.length;
+    if(avg >= state.settings.accelThreshold){
+      triggerStart();
+    }
+  }
+
+  function triggerStart(){
+    if(state.phase !== "armed") return;
+    state.phase = "running";
+    startTimestamp = Date.now();
+    stopMotion();
+    if(!tickInterval) tickInterval = setInterval(renderTimerLive, 100);
+    playTone(880, 150);
+    doVibrate(120);
+    renderState();
+  }
+  function triggerFinish(){
+    if(state.phase !== "running") return;
+    lastElapsed = Date.now() - startTimestamp;
+    state.phase = "finished";
+    clearTickInterval();
+    stopWatch();
+    releaseWakeLockMaybe();
+    playTone(440, 150);
+    setTimeout(function(){ playTone(440,150); }, 180);
+    doVibrate([120,80,120]);
+    renderState();
+  }
+  function clearTickInterval(){
+    if(tickInterval){ clearInterval(tickInterval); tickInterval = null; }
+  }
+
+  function saveRun(){
+    var note = document.getElementById("run-note").value.trim();
+    state.history.unshift({ id:Date.now(), date:new Date().toISOString(), elapsedMs:lastElapsed, mode:state.settings.startMode, note:note });
+    persist(); renderHistory();
+    document.getElementById("run-note").value = "";
+    state.phase = "ready";
+    renderState();
+  }
+  function discardRun(){
+    state.phase = "ready";
+    renderState();
+  }
+
+  // ---------- events ----------
+  document.querySelectorAll('[data-action="capture"]').forEach(function(btn){
+    btn.addEventListener("click", function(){ captureLocation(btn.getAttribute("data-target")); });
+  });
+  document.querySelectorAll('[data-action="toggle-manual"]').forEach(function(btn){
+    btn.addEventListener("click", function(){
+      document.getElementById(btn.getAttribute("data-target")+"-manual").classList.toggle("open");
+    });
+  });
+  document.querySelectorAll('[data-action="manual-set"]').forEach(function(btn){
+    btn.addEventListener("click", function(){ manualSet(btn.getAttribute("data-target")); });
+  });
+  document.querySelectorAll("#mode-group .pill").forEach(function(btn){
+    btn.addEventListener("click", function(){
+      state.settings.startMode = btn.getAttribute("data-mode");
+      persist(); renderSettingsUI();
+    });
+  });
+  document.getElementById("start-radius").addEventListener("input", function(e){
+    state.settings.startRadius = parseInt(e.target.value, 10);
+    document.getElementById("start-radius-val").textContent = state.settings.startRadius + " m";
+    persist();
+  });
+  document.getElementById("goal-radius").addEventListener("input", function(e){
+    state.settings.goalRadius = parseInt(e.target.value, 10);
+    document.getElementById("goal-radius-val").textContent = state.settings.goalRadius + " m";
+    persist();
+  });
+  document.getElementById("accel-thresh").addEventListener("input", function(e){
+    state.settings.accelThreshold = parseFloat(e.target.value);
+    document.getElementById("accel-thresh-val").textContent = state.settings.accelThreshold + " m/s²";
+    persist();
+  });
+  [["sw-wakelock","wakeLock"],["sw-sound","sound"],["sw-vibrate","vibrate"]].forEach(function(pair){
+    document.getElementById(pair[0]).addEventListener("click", function(){
+      state.settings[pair[1]] = !state.settings[pair[1]];
+      persist(); renderSettingsUI();
+    });
+  });
+  document.getElementById("clear-points-btn").addEventListener("click", function(){
+    state.points = { start:null, goal:null };
+    state.phase = "idle";
+    persist(); renderPoints(); renderState();
+  });
+  document.getElementById("save-run-btn").addEventListener("click", saveRun);
+  document.getElementById("discard-run-btn").addEventListener("click", discardRun);
+
+  // ---------- init ----------
+  loadPersisted();
+  renderPoints();
+  renderSettingsUI();
+  renderHistory();
+  updatePhaseFromPoints();
+  renderState();
+})();
+</script>
+
+</body>
+</html>
