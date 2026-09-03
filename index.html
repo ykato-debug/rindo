@@ -1,6 +1,4 @@
-<!DOCTYPE html>
-<html lang="ja">
-<head>
+<html lang="ja"><head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>林道ステージタイマー</title>
@@ -212,6 +210,18 @@
 
   footer.foot{ padding:0 1.1rem; margin-top:.4rem; }
   footer.foot .note{ border-top:1px solid var(--border); padding-top:1rem; }
+
+  /* ---- map picker overlay ---- */
+  .map-overlay{ position:fixed; inset:0; z-index:1000; background:var(--bg); display:flex; flex-direction:column; }
+  .map-header{ display:flex; align-items:center; justify-content:space-between; padding:.8rem 1rem; border-bottom:1px solid var(--border); background:var(--surface); flex:none; }
+  .map-title{ font-family:var(--font-display); font-weight:600; }
+  .map-container{ position:relative; flex:1; min-height:0; background:var(--surface-2); }
+  #leaflet-map{ position:absolute; inset:0; }
+  .map-pin{ position:absolute; top:50%; left:50%; transform:translate(-50%,-100%); font-size:2rem; pointer-events:none; filter:drop-shadow(0 2px 2px rgba(0,0,0,.35)); z-index:500; }
+  .map-locate-btn{ position:absolute; right:.7rem; bottom:.7rem; z-index:500; width:44px; height:44px; border:1px solid var(--border); background:var(--surface); color:var(--text); font-size:1.2rem; border-radius:50%; box-shadow:var(--shadow); }
+  .map-footer{ padding:.8rem 1rem; border-top:1px solid var(--border); background:var(--surface); display:flex; flex-direction:column; gap:.5rem; flex:none; }
+  .map-coords{ text-align:center; font-size:.9rem; color:var(--text-dim); }
+  .map-blocked{ position:absolute; inset:0; background:var(--bg); display:flex; flex-direction:column; align-items:center; justify-content:center; gap:1rem; padding:2rem; text-align:center; z-index:600; }
 </style>
 </head>
 <body>
@@ -224,7 +234,7 @@
       <div class="badge" id="badge" data-tone="">地点未設定</div>
       <div class="timer" id="timer" data-tone="">0:00<span class="frac">.0</span></div>
 
-      <div class="telemetry" id="telemetry" hidden>
+      <div class="telemetry" id="telemetry" hidden="">
         <div class="cell"><div class="k">GPS精度</div><div class="v num" id="tele-acc">—</div></div>
         <div class="cell"><div class="k" id="tele-dist-label">スタートまで</div><div class="v num" id="tele-dist">—</div></div>
       </div>
@@ -232,11 +242,11 @@
       <div class="status-line" id="status" data-tone="muted"></div>
 
       <div style="width:100%; margin-top:.4rem;">
-        <button class="main-btn" id="main-btn" disabled>スタート・ゴール地点を設定してください</button>
-        <div class="btn-row" id="secondary-row" style="display:none; margin-top:.55rem;"></div>
+        <button class="main-btn" id="main-btn" disabled="">スタート・ゴール地点を設定してください</button>
+        <div class="btn-row" id="secondary-row" style="display: none; margin-top: 0.55rem; justify-content: center;"></div>
       </div>
 
-      <div class="save-form" id="save-form" hidden>
+      <div class="save-form" id="save-form" hidden="">
         <input type="text" id="run-note" placeholder="備考（任意・例：北ルート、雨）" maxlength="60">
         <div class="btn-row">
           <button class="main-btn" id="save-run-btn">記録を保存</button>
@@ -249,16 +259,14 @@
     <div class="panel" style="padding:1rem;">
       <div class="section-label">計測記録</div>
       <div style="display:flex; justify-content:flex-end; margin:-.35rem 0 .5rem;">
-        <a id="share-recent-line" class="share-btn" href="#" target="_blank" rel="noopener noreferrer" hidden>直近2日分をLINEで送る</a>
+        <a id="share-recent-line" class="share-btn" href="#" target="_blank" rel="noopener noreferrer" hidden="">直近2日分をLINEで送る</a>
       </div>
       <div class="table-wrap" id="history-wrap">
         <table>
           <thead>
             <tr><th>日時</th><th>方式</th><th>タイム</th><th>備考</th><th></th></tr>
           </thead>
-          <tbody id="history-body">
-            <tr class="empty-row"><td colspan="5">まだ記録がありません</td></tr>
-          </tbody>
+          <tbody id="history-body"><tr class="empty-row"><td colspan="5">まだ記録がありません</td></tr></tbody>
         </table>
       </div>
     </div>
@@ -276,7 +284,7 @@
             <button class="pill" data-mode="manual" aria-pressed="false">手動（ボタン）</button>
             <button class="pill" data-mode="countdown" aria-pressed="false">カウントダウン</button>
           </div>
-          <div class="note" id="mode-note">スタート地点の半径内に入ったら計測を開始します。</div>
+          <div class="note" id="mode-note">スタート地点の半径内に入ったら計測を開始します。前後の測位点を補間して通過タイミングを推定します。ゴールもGPSで自動検知します。</div>
         </div>
 
         <div class="field">
@@ -332,6 +340,7 @@
         <div class="coords" id="start-coords">未設定</div>
         <div class="wp-actions">
           <button class="btn-sm" data-action="capture" data-target="start">📍現在地を記録</button>
+          <button class="btn-sm" data-action="open-map" data-target="start">🗺️ 地図で指定</button>
           <button class="btn-sm" data-action="toggle-manual" data-target="start">座標を手入力</button>
           <button class="btn-sm" data-action="delete-point" data-target="start">地点を削除</button>
         </div>
@@ -349,6 +358,7 @@
         <div class="coords" id="goal-coords">未設定</div>
         <div class="wp-actions">
           <button class="btn-sm" data-action="capture" data-target="goal">📍現在地を記録</button>
+          <button class="btn-sm" data-action="open-map" data-target="goal">🗺️ 地図で指定</button>
           <button class="btn-sm" data-action="toggle-manual" data-target="goal">座標を手入力</button>
           <button class="btn-sm" data-action="delete-point" data-target="goal">地点を削除</button>
         </div>
@@ -359,6 +369,27 @@
           </div>
           <button class="btn-sm" data-action="manual-set" data-target="goal">この座標を設定</button>
         </div>
+      </div>
+    </div>
+
+    <!-- Map picker overlay (real map tiles — download-file only, see map-blocked note) -->
+    <div class="map-overlay" id="map-overlay" hidden="">
+      <div class="map-header">
+        <div class="map-title" id="map-title">地点を選択</div>
+        <button class="link-btn" id="map-cancel-btn">キャンセル</button>
+      </div>
+      <div class="map-container" id="map-container">
+        <div id="leaflet-map"></div>
+        <div class="map-pin">📍</div>
+        <button class="map-locate-btn" id="map-locate-btn" title="現在地に移動">◎</button>
+      </div>
+      <div class="map-footer" id="map-footer">
+        <div class="map-coords num" id="map-coords">—</div>
+        <button class="main-btn" id="map-confirm-btn">この位置に設定</button>
+      </div>
+      <div class="map-blocked" id="map-blocked" hidden="">
+        <p class="note">地図で地点を指定する機能は、ダウンロード版のHTMLファイルでのみご利用いただけます（このArtifact版では地図画像を表示できません）。「📍現在地を記録」または「座標を手入力」をお使いください。</p>
+        <button class="main-btn" data-variant="ghost" id="map-blocked-close-btn">閉じる</button>
       </div>
     </div>
 
@@ -423,6 +454,16 @@
   var bindingTimeoutId = null;
   var countdownRemaining = 0;
   var countdownIntervalId = null;
+  var leafletLoadPromise = null;
+  var pickerMap = null;
+  var pickerTarget = null; // "start" | "goal" | null, while the map overlay is open
+  // Real map tiles require loading external images, which the published
+  // Artifact viewer's sandbox blocks entirely — this only works in the
+  // downloaded standalone HTML file, opened outside that sandbox. Artifacts
+  // render inside a cross-origin iframe, so that's used as the detection.
+  var IS_IFRAMED = (function(){
+    try{ return window.self !== window.top; }catch(e){ return true; }
+  })();
 
   // ---------- persistence ----------
   function persist(){
@@ -925,6 +966,98 @@
     renderState();
   }
 
+  // ---------- map picker (Leaflet + OpenStreetMap; download-file only) ----------
+  function loadLeaflet(){
+    if(leafletLoadPromise) return leafletLoadPromise;
+    leafletLoadPromise = new Promise(function(resolve, reject){
+      if(window.L){ resolve(); return; }
+      var link = document.createElement("link");
+      link.rel = "stylesheet";
+      link.href = "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.css";
+      document.head.appendChild(link);
+      var script = document.createElement("script");
+      script.src = "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js";
+      script.onload = function(){ resolve(); };
+      script.onerror = function(){ reject(new Error("leaflet load failed")); };
+      document.head.appendChild(script);
+    });
+    return leafletLoadPromise;
+  }
+  function showMapBlocked(msg){
+    document.getElementById("map-blocked").hidden = false;
+    document.querySelector("#map-blocked .note").textContent = msg;
+    document.getElementById("map-container").style.display = "none";
+    document.getElementById("map-footer").style.display = "none";
+  }
+  function showMapUsable(){
+    document.getElementById("map-blocked").hidden = true;
+    document.getElementById("map-container").style.display = "";
+    document.getElementById("map-footer").style.display = "";
+  }
+  function openMapPicker(which){
+    pickerTarget = which;
+    document.getElementById("map-title").textContent = (which === "start" ? "スタート地点" : "ゴール地点") + "を地図で指定";
+    document.getElementById("map-overlay").hidden = false;
+
+    if(IS_IFRAMED){
+      showMapBlocked("地図で地点を指定する機能は、ダウンロード版のHTMLファイルでのみご利用いただけます（このArtifact版では地図画像を表示できません）。「📍現在地を記録」または「座標を手入力」をお使いください。");
+      return;
+    }
+    showMapUsable();
+    loadLeaflet().then(function(){
+      initOrResetMap(which);
+    }).catch(function(){
+      showMapBlocked("地図の読み込みに失敗しました。通信環境をご確認のうえ、もう一度お試しください。「座標を手入力」もご利用いただけます。");
+    });
+  }
+  function initOrResetMap(which){
+    var existing = state.points[which];
+
+    function setupWithCenter(c, zoom){
+      if(!pickerMap){
+        pickerMap = L.map("leaflet-map", { zoomControl:true, attributionControl:true }).setView(c, zoom);
+        L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+          maxZoom: 19,
+          attribution: '&copy; OpenStreetMap contributors'
+        }).addTo(pickerMap);
+        pickerMap.on("move", updateMapCoordsReadout);
+      } else {
+        pickerMap.setView(c, zoom);
+      }
+      setTimeout(function(){ if(pickerMap){ pickerMap.invalidateSize(); updateMapCoordsReadout(); } }, 50);
+    }
+
+    if(existing){
+      setupWithCenter([existing.lat, existing.lon], 17);
+    } else if(navigator.geolocation){
+      document.getElementById("map-coords").textContent = "現在地を取得中…";
+      navigator.geolocation.getCurrentPosition(function(pos){
+        setupWithCenter([pos.coords.latitude, pos.coords.longitude], 17);
+      }, function(){
+        setupWithCenter([36.2048, 138.2529], 5); // fallback: Japan-wide view
+      }, { enableHighAccuracy:true, timeout:8000 });
+    } else {
+      setupWithCenter([36.2048, 138.2529], 5);
+    }
+  }
+  function updateMapCoordsReadout(){
+    if(!pickerMap) return;
+    var c = pickerMap.getCenter();
+    document.getElementById("map-coords").textContent = c.lat.toFixed(6) + ", " + c.lng.toFixed(6);
+  }
+  function closeMapPicker(){
+    document.getElementById("map-overlay").hidden = true;
+    pickerTarget = null;
+  }
+  function confirmMapPicker(){
+    if(!pickerMap || !pickerTarget) return;
+    var c = pickerMap.getCenter();
+    state.points[pickerTarget] = { lat:c.lat, lon:c.lng, acc:0, ts:Date.now() };
+    persist(); renderPoints(); updatePhaseFromPoints();
+    showStatus((pickerTarget==="start"?"スタート":"ゴール") + "地点を地図で設定しました", "ok");
+    closeMapPicker();
+  }
+
   // ---------- measurement flow ----------
   function arm(){
     if(!pointsRequirementMet()) return;
@@ -1137,6 +1270,18 @@
   document.querySelectorAll('[data-action="delete-point"]').forEach(function(btn){
     btn.addEventListener("click", function(){ deletePoint(btn.getAttribute("data-target")); });
   });
+  document.querySelectorAll('[data-action="open-map"]').forEach(function(btn){
+    btn.addEventListener("click", function(){ openMapPicker(btn.getAttribute("data-target")); });
+  });
+  document.getElementById("map-cancel-btn").addEventListener("click", closeMapPicker);
+  document.getElementById("map-blocked-close-btn").addEventListener("click", closeMapPicker);
+  document.getElementById("map-confirm-btn").addEventListener("click", confirmMapPicker);
+  document.getElementById("map-locate-btn").addEventListener("click", function(){
+    if(!pickerMap || !navigator.geolocation) return;
+    navigator.geolocation.getCurrentPosition(function(pos){
+      pickerMap.setView([pos.coords.latitude, pos.coords.longitude], 17);
+    }, function(){ showStatus("現在地を取得できませんでした", "warn"); });
+  });
   document.querySelectorAll("#mode-group .pill").forEach(function(btn){
     btn.addEventListener("click", function(){
       state.settings.startMode = btn.getAttribute("data-mode");
@@ -1203,5 +1348,6 @@
 })();
 </script>
 
-</body>
-</html>
+
+
+</body></html>
