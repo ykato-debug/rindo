@@ -58,6 +58,12 @@
   }
 
   *{ box-sizing:border-box; }
+  /* Several elements below (e.g. .map-overlay, .telemetry, .save-form) set an
+     unconditional "display" for their own layout, which — per the CSS
+     cascade — always wins over the browser's default [hidden]{display:none}
+     rule regardless of selector specificity, since any author rule outranks
+     a user-agent rule. This restores the hidden attribute's effect. */
+  [hidden]{ display:none !important; }
   body{
     margin:0;
     background:var(--bg);
@@ -388,7 +394,7 @@
         <button class="main-btn" id="map-confirm-btn">この位置に設定</button>
       </div>
       <div class="map-blocked" id="map-blocked" hidden="">
-        <p class="note">地図で地点を指定する機能は、ダウンロード版のHTMLファイルでのみご利用いただけます（このArtifact版では地図画像を表示できません）。「📍現在地を記録」または「座標を手入力」をお使いください。</p>
+        <p class="note" id="map-blocked-text">地図を読み込み中…</p>
         <button class="main-btn" data-variant="ghost" id="map-blocked-close-btn">閉じる</button>
       </div>
     </div>
@@ -457,13 +463,14 @@
   var leafletLoadPromise = null;
   var pickerMap = null;
   var pickerTarget = null; // "start" | "goal" | null, while the map overlay is open
-  // Real map tiles require loading external images, which the published
-  // Artifact viewer's sandbox blocks entirely — this only works in the
-  // downloaded standalone HTML file, opened outside that sandbox. Artifacts
-  // render inside a cross-origin iframe, so that's used as the detection.
-  var IS_IFRAMED = (function(){
-    try{ return window.self !== window.top; }catch(e){ return true; }
-  })();
+  // Whether OpenStreetMap tile images actually render here resolves once,
+  // the first time the picker is opened — see ensureMapReady(). Some
+  // environments (the published Artifact viewer, or even a file preview
+  // pane) block external image loads even though the page itself runs, so
+  // this is decided by trying it rather than guessing from context (e.g.
+  // whether the page is inside an iframe, which is true in both a blocked
+  // preview pane and some non-blocked contexts).
+  var tilesReadyPromise = null;
 
   // ---------- persistence ----------
   function persist(){
@@ -983,9 +990,15 @@
     });
     return leafletLoadPromise;
   }
+  function showMapLoading(){
+    document.getElementById("map-blocked").hidden = false;
+    document.getElementById("map-blocked-text").textContent = "地図を読み込み中…";
+    document.getElementById("map-container").style.display = "none";
+    document.getElementById("map-footer").style.display = "none";
+  }
   function showMapBlocked(msg){
     document.getElementById("map-blocked").hidden = false;
-    document.querySelector("#map-blocked .note").textContent = msg;
+    document.getElementById("map-blocked-text").textContent = msg;
     document.getElementById("map-container").style.display = "none";
     document.getElementById("map-footer").style.display = "none";
   }
@@ -998,35 +1011,54 @@
     pickerTarget = which;
     document.getElementById("map-title").textContent = (which === "start" ? "スタート地点" : "ゴール地点") + "を地図で指定";
     document.getElementById("map-overlay").hidden = false;
+    showMapLoading();
 
-    if(IS_IFRAMED){
-      showMapBlocked("地図で地点を指定する機能は、ダウンロード版のHTMLファイルでのみご利用いただけます（このArtifact版では地図画像を表示できません）。「📍現在地を記録」または「座標を手入力」をお使いください。");
-      return;
-    }
-    showMapUsable();
     loadLeaflet().then(function(){
-      initOrResetMap(which);
+      return ensureMapReady();
+    }).then(function(ok){
+      if(pickerTarget !== which) return; // overlay was closed, or reopened for the other point, meanwhile
+      if(ok){
+        showMapUsable();
+        centerMapOn(which);
+      } else {
+        showMapBlocked("地図画像を読み込めませんでした。表示している画面(プレビューなど)では地図画像の読み込みが制限されている可能性があります。ダウンロード版のHTMLファイルをSafariなどのブラウザで直接開いてお試しいただくか、「現在地を記録」または「座標を手入力」をお使いください。");
+      }
     }).catch(function(){
+      if(pickerTarget !== which) return;
       showMapBlocked("地図の読み込みに失敗しました。通信環境をご確認のうえ、もう一度お試しください。「座標を手入力」もご利用いただけます。");
     });
   }
-  function initOrResetMap(which){
-    var existing = state.points[which];
-
-    function setupWithCenter(c, zoom){
-      if(!pickerMap){
-        pickerMap = L.map("leaflet-map", { zoomControl:true, attributionControl:true }).setView(c, zoom);
-        L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-          maxZoom: 19,
-          attribution: '&copy; OpenStreetMap contributors'
-        }).addTo(pickerMap);
-        pickerMap.on("move", updateMapCoordsReadout);
-      } else {
-        pickerMap.setView(c, zoom);
+  // Creates the Leaflet map + OpenStreetMap tile layer once, and resolves
+  // true/false for whether tile images actually rendered -- some contexts
+  // block the image requests even though the page and Leaflet's JS run fine.
+  function ensureMapReady(){
+    if(tilesReadyPromise) return tilesReadyPromise;
+    tilesReadyPromise = new Promise(function(resolve){
+      pickerMap = L.map("leaflet-map", { zoomControl:true, attributionControl:true }).setView([36.2048, 138.2529], 5);
+      var tileLayer = L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+        maxZoom: 19,
+        attribution: '&copy; OpenStreetMap contributors'
+      }).addTo(pickerMap);
+      pickerMap.on("move", updateMapCoordsReadout);
+      var successCount = 0;
+      var settled = false;
+      function finish(ok){
+        if(settled) return;
+        settled = true;
+        resolve(ok);
       }
+      tileLayer.on("tileload", function(){ successCount++; finish(true); });
+      tileLayer.on("load", function(){ finish(successCount > 0); }); // fires once the current tile queue has settled (loaded or errored)
+      setTimeout(function(){ finish(successCount > 0); }, 6000); // safety net in case 'load' never fires
+    });
+    return tilesReadyPromise;
+  }
+  function centerMapOn(which){
+    var existing = state.points[which];
+    function setupWithCenter(c, zoom){
+      pickerMap.setView(c, zoom);
       setTimeout(function(){ if(pickerMap){ pickerMap.invalidateSize(); updateMapCoordsReadout(); } }, 50);
     }
-
     if(existing){
       setupWithCenter([existing.lat, existing.lon], 17);
     } else if(navigator.geolocation){
